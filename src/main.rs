@@ -13,6 +13,7 @@ use settings::Settings;
 mod app;
 mod cli;
 mod logging;
+mod notion;
 mod settings;
 
 #[tokio::main]

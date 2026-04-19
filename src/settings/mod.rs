@@ -20,10 +20,11 @@ use crate::app::state::AppState;
 use self::json_backend::{JsonBackend, get_default_json_path};
 #[cfg(feature = "sqlite")]
 use self::sqlite_backend::{SqliteBackend, get_default_sqlite_path};
-use self::{export::ExportSettings, external_editor::ExternalEditor};
+use self::{export::ExportSettings, external_editor::ExternalEditor, notion::NotionSettings};
 
 #[cfg(feature = "json")]
 pub mod json_backend;
+pub mod notion;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 
@@ -62,6 +63,8 @@ pub struct Settings {
     pub datum_visibility: DatumVisibility,
     /// Overwrite the path for the directory used to persist the app state.
     pub app_state_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub notion: NotionSettings,
 }
 
 impl Default for Settings {
@@ -81,6 +84,7 @@ impl Default for Settings {
             colored_tags: default_colored_tags(),
             datum_visibility: Default::default(),
             app_state_dir: Default::default(),
+            notion: Default::default(),
         }
     }
 }
@@ -173,6 +177,7 @@ impl Settings {
             colored_tags: _,
             datum_visibility: _,
             app_state_dir: _,
+            notion: _,
         } = self;
 
         if self.backend_type.is_none() {

@@ -147,6 +147,21 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             terminal.draw(|f| render_message_centered(f, "Assigning Priority to Journals..."))?;
             app.assign_priority_to_entries(priority).await?;
         }
+        PendingCliCommand::NotionBootstrap { force, database_id } => {
+            terminal.draw(|f| render_message_centered(f, "Bootstrapping from Notion..."))?;
+            let mut notion_settings = app.settings.notion.clone();
+            if let Some(id) = database_id {
+                notion_settings.database_id = Some(id);
+            }
+            let outcome =
+                crate::notion::bootstrap_from_notion(&app.data_provide, &notion_settings, force)
+                    .await?;
+            log::info!(
+                "Notion bootstrap finished: inserted={}, skipped={}",
+                outcome.inserted,
+                outcome.skipped
+            );
+        }
     }
 
     Ok(())

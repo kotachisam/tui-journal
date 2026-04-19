@@ -30,6 +30,24 @@ pub enum CliCommand {
     #[clap(visible_alias = "style")]
     #[command(subcommand)]
     Theme(Themes),
+    /// Provides commands for syncing with external providers.
+    #[command(subcommand)]
+    Notion(NotionCommand),
+}
+
+#[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
+pub enum NotionCommand {
+    /// One-shot pull of every Notion page into local storage. Refuses if the
+    /// local backend already has entries unless --force is passed.
+    Bootstrap {
+        /// Overwrite-proof: only proceed when the local backend is empty
+        /// unless this flag is set.
+        #[arg(long)]
+        force: bool,
+        /// Notion database ID. Overrides the value in settings for this run only.
+        #[arg(long = "database-id")]
+        database_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
@@ -50,6 +68,10 @@ pub enum Themes {
 pub enum PendingCliCommand {
     ImportJournals(PathBuf),
     AssignPriority(u32),
+    NotionBootstrap {
+        force: bool,
+        database_id: Option<String>,
+    },
 }
 
 impl CliCommand {
@@ -71,6 +93,12 @@ impl CliCommand {
                 Themes::DumpDefaults => exec_print_themes_defaults(),
                 Themes::WriteDefaults => exec_write_themes_defaults(custom_config_dir),
             },
+            CliCommand::Notion(NotionCommand::Bootstrap {
+                force,
+                database_id,
+            }) => Ok(CliResult::PendingCommand(
+                PendingCliCommand::NotionBootstrap { force, database_id },
+            )),
         }
     }
 }
