@@ -13,6 +13,10 @@ pub(crate) struct EntryIntermediate {
     pub priority: Option<u32>,
     /// Tags as a string with commas as separator for the tags
     pub tags: Option<String>,
+    pub sync_provider: Option<String>,
+    pub external_id: Option<String>,
+    pub last_synced_at: Option<DateTime<Utc>>,
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl From<EntryIntermediate> for Entry {
@@ -27,6 +31,10 @@ impl From<EntryIntermediate> for Entry {
                 .tags
                 .map(|tags| tags.split_terminator(',').map(String::from).collect())
                 .unwrap_or_default(),
+            sync_provider: value.sync_provider,
+            external_id: value.external_id,
+            last_synced_at: value.last_synced_at,
+            deleted_at: value.deleted_at,
         }
     }
 }
@@ -45,6 +53,10 @@ mod tests {
             content: String::from("Content"),
             priority: Some(2),
             tags: tags.map(String::from),
+            sync_provider: None,
+            external_id: None,
+            last_synced_at: None,
+            deleted_at: None,
         }
     }
 

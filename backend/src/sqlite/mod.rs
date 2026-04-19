@@ -63,7 +63,9 @@ impl SqliteDataProvide {
 impl DataProvider for SqliteDataProvide {
     async fn load_all_entries(&self) -> anyhow::Result<Vec<Entry>> {
         let entries: Vec<EntryIntermediate> = sqlx::query_as(
-            r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority, GROUP_CONCAT(tags.tag) AS tags
+            r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
+                entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
+                GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id
             GROUP BY entries.id
@@ -204,7 +206,9 @@ impl DataProvider for SqliteDataProvide {
             .join(", ");
 
         let sql = format!(
-            r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority, GROUP_CONCAT(tags.tag) AS tags
+            r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
+                entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
+                GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id
             WHERE entries.id IN ({ids_text})

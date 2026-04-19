@@ -56,6 +56,14 @@ pub struct Entry {
     pub tags: Vec<String>,
     #[serde(default)]
     pub priority: Option<u32>,
+    #[serde(default)]
+    pub sync_provider: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub last_synced_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl Entry {
@@ -75,6 +83,10 @@ impl Entry {
             content,
             tags,
             priority,
+            sync_provider: None,
+            external_id: None,
+            last_synced_at: None,
+            deleted_at: None,
         }
     }
 
@@ -86,6 +98,10 @@ impl Entry {
             content: draft.content,
             tags: draft.tags,
             priority: draft.priority,
+            sync_provider: draft.sync_provider,
+            external_id: draft.external_id,
+            last_synced_at: draft.last_synced_at,
+            deleted_at: draft.deleted_at,
         }
     }
 }
@@ -97,6 +113,14 @@ pub struct EntryDraft {
     pub content: String,
     pub tags: Vec<String>,
     pub priority: Option<u32>,
+    #[serde(default)]
+    pub sync_provider: Option<String>,
+    #[serde(default)]
+    pub external_id: Option<String>,
+    #[serde(default)]
+    pub last_synced_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 impl EntryDraft {
@@ -113,6 +137,10 @@ impl EntryDraft {
             content,
             tags,
             priority,
+            sync_provider: None,
+            external_id: None,
+            last_synced_at: None,
+            deleted_at: None,
         }
     }
 
@@ -129,6 +157,10 @@ impl EntryDraft {
             content: entry.content,
             tags: entry.tags,
             priority: entry.priority,
+            sync_provider: entry.sync_provider,
+            external_id: entry.external_id,
+            last_synced_at: entry.last_synced_at,
+            deleted_at: entry.deleted_at,
         }
     }
 }
@@ -164,6 +196,10 @@ mod tests {
             content: String::from("Body"),
             tags: vec![String::from("one"), String::from("two")],
             priority: Some(3),
+            sync_provider: None,
+            external_id: None,
+            last_synced_at: None,
+            deleted_at: None,
         }
     }
 
