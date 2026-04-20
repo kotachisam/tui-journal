@@ -19,7 +19,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, Paragraph, Wrap};
 use tokio::sync::mpsc::unbounded_channel;
 
-use crate::notion::{SyncProgress, SyncStage, bootstrap_from_notion, pull_from_notion};
+use crate::notion::{
+    SyncProgress, SyncStage, bootstrap_from_notion, pull_from_notion, push_to_notion,
+};
 use crate::settings::notion::NotionSettings;
 
 use super::keymap::Input;
@@ -185,6 +187,23 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.errored
             );
         }
+        PendingCliCommand::NotionPush { database_id } => {
+            let mut notion_settings = app.settings.notion.clone();
+            if let Some(id) = database_id {
+                notion_settings.database_id = Some(id);
+            }
+            let outcome =
+                run_notion_push(terminal, &app.data_provide, &notion_settings).await?;
+            log::info!(
+                "Notion push finished: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
+                outcome.created,
+                outcome.updated,
+                outcome.archived,
+                outcome.skipped_unchanged,
+                outcome.skipped_conflict,
+                outcome.errored
+            );
+        }
     }
 
     Ok(())
@@ -241,6 +260,37 @@ async fn run_notion_pull<B: Backend, D: DataProvider>(
     loop {
         tokio::select! {
             result = &mut pull => {
+                return result;
+            }
+            progress = rx.recv() => {
+                if let Some(p) = progress {
+                    latest = p;
+                    terminal.draw(|f| render_sync_progress(f, &latest))?;
+                }
+            }
+        }
+    }
+}
+
+async fn run_notion_push<B: Backend, D: DataProvider>(
+    terminal: &mut Terminal<B>,
+    provider: &D,
+    settings: &NotionSettings,
+) -> anyhow::Result<crate::notion::PushOutcome> {
+    let (tx, mut rx) = unbounded_channel::<SyncProgress>();
+    let mut latest = SyncProgress {
+        stage: SyncStage::ResolvingDataSource,
+        current: 0,
+        total: 0,
+    };
+    terminal.draw(|f| render_sync_progress(f, &latest))?;
+
+    let push = push_to_notion(provider, settings, Some(tx));
+    tokio::pin!(push);
+
+    loop {
+        tokio::select! {
+            result = &mut push => {
                 return result;
             }
             progress = rx.recv() => {

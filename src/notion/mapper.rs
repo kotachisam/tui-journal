@@ -1,16 +1,104 @@
-use backend::EntryDraft;
+use std::collections::HashMap;
+
+use backend::{Entry, EntryDraft};
 use chrono::{DateTime, NaiveDate, Utc};
 use notionrs_types::object::date::DateOrDateTime;
-use notionrs_types::object::rich_text::RichText;
+use notionrs_types::object::page::date::{PageDateProperty, PageDatePropertyParameter};
+use notionrs_types::object::page::multi_select::PageMultiSelectProperty;
+use notionrs_types::object::page::title::PageTitleProperty;
+use notionrs_types::object::rich_text::{RichText, RichTextAnnotations};
+use notionrs_types::object::rich_text::text::Text;
+use notionrs_types::object::select::Select;
 use notionrs_types::prelude::{PageProperty, PageResponse};
 
 use crate::settings::notion::PropertyMappings;
 
 pub const NOTION_PROVIDER: &str = "notion";
+const DEFAULT_TITLE_PROPERTY: &str = "Name";
 const DEFAULT_DATE_PROPERTY: &str = "Date Created";
+const DEFAULT_TAGS_PROPERTY: &str = "Tags";
 const TITLE_FALLBACK: &str = "Untitled";
 const EMPTY_BLOCK_MARKER: &str = "<empty-block/>";
 const UNKNOWN_BLOCK_MARKER: &str = "<unknown>";
+
+pub fn entry_to_properties(
+    entry: &Entry,
+    mappings: &PropertyMappings,
+) -> HashMap<String, PageProperty> {
+    let mut props = HashMap::new();
+
+    let title_name = mappings
+        .title_property
+        .as_deref()
+        .unwrap_or(DEFAULT_TITLE_PROPERTY)
+        .to_owned();
+    props.insert(
+        title_name,
+        PageProperty::Title(PageTitleProperty {
+            id: None,
+            title: vec![plain_rich_text(&entry.title)],
+        }),
+    );
+
+    let date_name = mappings
+        .date_property
+        .as_deref()
+        .unwrap_or(DEFAULT_DATE_PROPERTY)
+        .to_owned();
+    props.insert(
+        date_name,
+        PageProperty::Date(PageDateProperty {
+            id: None,
+            date: Some(PageDatePropertyParameter {
+                start: Some(DateOrDateTime::DateTime(chrono_to_offset(entry.date))),
+                end: None,
+                time_zone: None,
+            }),
+        }),
+    );
+
+    let tags_name = mappings
+        .tags_property
+        .as_deref()
+        .unwrap_or(DEFAULT_TAGS_PROPERTY)
+        .to_owned();
+    props.insert(
+        tags_name,
+        PageProperty::MultiSelect(PageMultiSelectProperty {
+            id: None,
+            multi_select: entry
+                .tags
+                .iter()
+                .map(|tag| Select {
+                    id: None,
+                    name: tag.clone(),
+                    color: None,
+                    description: None,
+                })
+                .collect(),
+        }),
+    );
+
+    props
+}
+
+fn plain_rich_text(text: &str) -> RichText {
+    RichText::Text {
+        text: Text {
+            content: text.to_owned(),
+            link: None,
+        },
+        annotations: RichTextAnnotations::default(),
+        plain_text: text.to_owned(),
+        href: None,
+    }
+}
+
+fn chrono_to_offset(dt: DateTime<Utc>) -> time::OffsetDateTime {
+    time::OffsetDateTime::from_unix_timestamp(dt.timestamp()).unwrap_or_else(|_| {
+        time::OffsetDateTime::from_unix_timestamp(0).expect("unix epoch is always valid")
+    })
+}
 
 pub fn page_to_draft(
     page: &PageResponse,

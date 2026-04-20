@@ -56,6 +56,16 @@ pub enum NotionCommand {
         #[arg(long = "database-id")]
         database_id: Option<String>,
     },
+    /// Push locally modified entries to Notion. Requires
+    /// notion.sync_mode = "push" or "two_way" in settings. Creates pages for
+    /// entries without external_id, updates modified ones, archives entries
+    /// with deleted_at set. Conflicts (both sides changed since last sync)
+    /// are skipped with a warning; run pull first to reconcile.
+    Push {
+        /// Notion database ID. Overrides the value in settings for this run only.
+        #[arg(long = "database-id")]
+        database_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
@@ -81,6 +91,9 @@ pub enum PendingCliCommand {
         database_id: Option<String>,
     },
     NotionPull {
+        database_id: Option<String>,
+    },
+    NotionPush {
         database_id: Option<String>,
     },
 }
@@ -112,6 +125,9 @@ impl CliCommand {
             )),
             CliCommand::Notion(NotionCommand::Pull { database_id }) => Ok(
                 CliResult::PendingCommand(PendingCliCommand::NotionPull { database_id }),
+            ),
+            CliCommand::Notion(NotionCommand::Push { database_id }) => Ok(
+                CliResult::PendingCommand(PendingCliCommand::NotionPush { database_id }),
             ),
         }
     }
