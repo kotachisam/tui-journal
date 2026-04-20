@@ -48,7 +48,7 @@ pub async fn bootstrap_from_notion<D: DataProvider>(
             }
         };
 
-        let draft = page_to_draft(&page, markdown);
+        let draft = page_to_draft(&page, markdown, &settings.mappings);
 
         if let Err(err) = provider.add_entry(draft).await {
             log::error!("Failed to insert page {}: {err}", page.id);
