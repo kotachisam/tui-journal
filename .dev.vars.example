@@ -1,0 +1,19 @@
+# Example environment file for tjournal.
+#
+# Copy this to `.dev.vars` (preferred) or `.env` — tjournal auto-loads both
+# at startup, with `.dev.vars` taking precedence. Already-exported shell
+# variables always win over file contents (non-overwriting load), so you
+# can still override ad-hoc with `NOTION_TOKEN=xyz tjournal notion pull`.
+#
+# Do not commit the populated file; both `.dev.vars` and `.env` should be
+# in `.gitignore`.
+
+# Required for any Notion sync command. Create a Notion integration at
+# https://www.notion.so/profile/integrations and paste its token here.
+NOTION_TOKEN=ntn_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+
+# Optional. The Notion database to sync with. You can also pass it per-run
+# via `--database-id` or set `notion.database_id` in your tjournal config.
+# Found in the database URL, 32 hex chars (with or without dashes):
+# https://www.notion.so/<DATABASE_ID>?v=...
+NOTION_DATABASE_ID=00000000000000000000000000000000

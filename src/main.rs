@@ -18,6 +18,11 @@ mod settings;
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Load env from local dotfiles if present. Non-overwriting, so values
+    // already exported in the shell take precedence over file contents.
+    let _ = dotenvy::from_filename(".dev.vars");
+    let _ = dotenvy::dotenv();
+
     let cli = cli::Cli::parse();
 
     let custom_config = cli.config_path.clone();

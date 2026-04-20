@@ -44,6 +44,7 @@ notionrs = "0.21"
 notionrs_types = "0.16"
 futures = "0.3"
 time = "0.3"
+dotenvy = "0.15"
 
 [features]
 default = ["json", "sqlite"]

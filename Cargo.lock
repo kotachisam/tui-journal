@@ -3262,6 +3262,7 @@ dependencies = [
  "clap",
  "crossterm",
  "directories",
+ "dotenvy",
  "futures",
  "futures-util",
  "fuzzy-matcher",
