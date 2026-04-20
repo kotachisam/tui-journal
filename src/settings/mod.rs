@@ -61,6 +61,9 @@ pub struct Settings {
     #[serde(default)]
     /// Sets the visibility options for the datum of journals when rendered in entries list.
     pub datum_visibility: DatumVisibility,
+    #[serde(default)]
+    /// Sets the visibility options for the tags of journals when rendered in entries list.
+    pub tag_visibility: TagVisibility,
     /// Overwrite the path for the directory used to persist the app state.
     pub app_state_dir: Option<PathBuf>,
     #[serde(default)]
@@ -83,6 +86,7 @@ impl Default for Settings {
             history_limit: default_history_limit(),
             colored_tags: default_colored_tags(),
             datum_visibility: Default::default(),
+            tag_visibility: Default::default(),
             app_state_dir: Default::default(),
             notion: Default::default(),
         }
@@ -101,6 +105,18 @@ pub enum DatumVisibility {
     Hide,
     /// Hide the datum providing an extra empty line if `priority` filed for the entry is empty.
     EmptyLine,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, ValueEnum, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+/// Represents the visibility options for tags of journals when rendered in the entries list.
+pub enum TagVisibility {
+    #[default]
+    /// Render the entry's tags beneath its title.
+    Show,
+    /// Hide tags from the entries list. Tags remain editable via the entry
+    /// details dialog.
+    Hide,
 }
 
 #[derive(Debug, Deserialize, Serialize, PartialEq, Eq, ValueEnum, Clone, Copy, Default)]
@@ -176,6 +192,7 @@ impl Settings {
             history_limit: _,
             colored_tags: _,
             datum_visibility: _,
+            tag_visibility: _,
             app_state_dir: _,
             notion: _,
         } = self;
