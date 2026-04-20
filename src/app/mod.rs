@@ -224,6 +224,7 @@ where
         entry.date = date;
         entry.tags = tags;
         entry.priority = priority;
+        entry.updated_at = None;
 
         let clone = entry.clone();
 
@@ -265,6 +266,7 @@ where
             .expect("Current entry id must have value when updating entry content");
 
         entry.content = entry_content;
+        entry.updated_at = None;
 
         let clone = entry.clone();
 

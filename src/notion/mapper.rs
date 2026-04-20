@@ -118,6 +118,7 @@ pub fn page_to_draft(
     draft.external_id = Some(page.id.clone());
     draft.last_synced_at = Some(now);
     draft.source_last_edited_at = Some(offset_datetime_to_chrono(page.last_edited_time));
+    draft.updated_at = Some(now);
     draft
 }
 

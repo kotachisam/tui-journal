@@ -172,6 +172,7 @@ async fn apply_remote<D: DataProvider>(
     merged.external_id = draft.external_id;
     merged.last_synced_at = draft.last_synced_at;
     merged.source_last_edited_at = draft.source_last_edited_at;
+    merged.updated_at = draft.last_synced_at;
 
     provider
         .update_entry(merged)

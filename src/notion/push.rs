@@ -63,11 +63,9 @@ pub async fn push_to_notion<D: DataProvider>(
     let local = provider.load_all_entries().await?;
     let candidates: Vec<&Entry> = local
         .iter()
-        .filter(|entry| {
-            entry
-                .sync_provider
-                .as_deref()
-                .is_some_and(|p| p == NOTION_PROVIDER)
+        .filter(|entry| match entry.sync_provider.as_deref() {
+            Some(provider) => provider == NOTION_PROVIDER,
+            None => true,
         })
         .collect();
 
@@ -187,10 +185,13 @@ async fn create<D: DataProvider>(
         .create_page(data_source_id, properties, entry.content.clone())
         .await?;
 
+    let now = Utc::now();
     let mut updated = entry.clone();
+    updated.sync_provider = Some(NOTION_PROVIDER.to_owned());
     updated.external_id = Some(response.id.clone());
-    updated.last_synced_at = Some(Utc::now());
+    updated.last_synced_at = Some(now);
     updated.source_last_edited_at = Some(offset_to_chrono(response.last_edited_time));
+    updated.updated_at = Some(now);
     provider
         .update_entry(updated)
         .await
@@ -212,9 +213,11 @@ async fn update<D: DataProvider>(
         .replace_page_markdown(page_id, entry.content.clone())
         .await?;
 
+    let now = Utc::now();
     let mut refreshed = entry.clone();
-    refreshed.last_synced_at = Some(Utc::now());
+    refreshed.last_synced_at = Some(now);
     refreshed.source_last_edited_at = Some(offset_to_chrono(response.last_edited_time));
+    refreshed.updated_at = Some(now);
     provider
         .update_entry(refreshed)
         .await
@@ -230,8 +233,10 @@ async fn archive<D: DataProvider>(
 ) -> anyhow::Result<()> {
     client.archive_page(page_id).await?;
 
+    let now = Utc::now();
     let mut refreshed = entry.clone();
-    refreshed.last_synced_at = Some(Utc::now());
+    refreshed.last_synced_at = Some(now);
+    refreshed.updated_at = Some(now);
     provider
         .update_entry(refreshed)
         .await
@@ -318,6 +323,14 @@ mod tests {
     #[test]
     fn new_entry_with_no_external_id_is_created() {
         let entry = make_entry(None, None, Some(Utc::now()), None, None);
+        let remote = HashMap::new();
+        assert_eq!(decide_push(&entry, &remote), PushAction::Create);
+    }
+
+    #[test]
+    fn unsynced_local_entry_is_created() {
+        let mut entry = make_entry(None, None, Some(Utc::now()), None, None);
+        entry.sync_provider = None;
         let remote = HashMap::new();
         assert_eq!(decide_push(&entry, &remote), PushAction::Create);
     }
