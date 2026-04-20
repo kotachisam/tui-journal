@@ -48,6 +48,14 @@ pub enum NotionCommand {
         #[arg(long = "database-id")]
         database_id: Option<String>,
     },
+    /// Incremental pull from Notion. Upserts entries by external_id, skips
+    /// unchanged pages, resolves conflicts by latest-timestamp wins. Leaves
+    /// local-only entries (sync_provider IS NULL) untouched.
+    Pull {
+        /// Notion database ID. Overrides the value in settings for this run only.
+        #[arg(long = "database-id")]
+        database_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
@@ -70,6 +78,9 @@ pub enum PendingCliCommand {
     AssignPriority(u32),
     NotionBootstrap {
         force: bool,
+        database_id: Option<String>,
+    },
+    NotionPull {
         database_id: Option<String>,
     },
 }
@@ -99,6 +110,9 @@ impl CliCommand {
             }) => Ok(CliResult::PendingCommand(
                 PendingCliCommand::NotionBootstrap { force, database_id },
             )),
+            CliCommand::Notion(NotionCommand::Pull { database_id }) => Ok(
+                CliResult::PendingCommand(PendingCliCommand::NotionPull { database_id }),
+            ),
         }
     }
 }

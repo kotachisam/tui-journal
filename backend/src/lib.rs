@@ -64,6 +64,10 @@ pub struct Entry {
     pub last_synced_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub source_last_edited_at: Option<DateTime<Utc>>,
 }
 
 impl Entry {
@@ -87,6 +91,8 @@ impl Entry {
             external_id: None,
             last_synced_at: None,
             deleted_at: None,
+            updated_at: None,
+            source_last_edited_at: None,
         }
     }
 
@@ -102,6 +108,8 @@ impl Entry {
             external_id: draft.external_id,
             last_synced_at: draft.last_synced_at,
             deleted_at: draft.deleted_at,
+            updated_at: draft.updated_at,
+            source_last_edited_at: draft.source_last_edited_at,
         }
     }
 }
@@ -121,6 +129,10 @@ pub struct EntryDraft {
     pub last_synced_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub deleted_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub source_last_edited_at: Option<DateTime<Utc>>,
 }
 
 impl EntryDraft {
@@ -141,6 +153,8 @@ impl EntryDraft {
             external_id: None,
             last_synced_at: None,
             deleted_at: None,
+            updated_at: None,
+            source_last_edited_at: None,
         }
     }
 
@@ -161,6 +175,8 @@ impl EntryDraft {
             external_id: entry.external_id,
             last_synced_at: entry.last_synced_at,
             deleted_at: entry.deleted_at,
+            updated_at: entry.updated_at,
+            source_last_edited_at: entry.source_last_edited_at,
         }
     }
 }
@@ -200,6 +216,8 @@ mod tests {
             external_id: None,
             last_synced_at: None,
             deleted_at: None,
+            updated_at: None,
+            source_last_edited_at: None,
         }
     }
 

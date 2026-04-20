@@ -24,10 +24,12 @@ pub fn page_to_draft(
     let tags = extract_tags(page, mappings.tags_property.as_deref());
     let content = sanitize_markdown(&markdown);
 
+    let now = Utc::now();
     let mut draft = EntryDraft::new(date, title, tags, None).with_content(content);
     draft.sync_provider = Some(NOTION_PROVIDER.to_owned());
     draft.external_id = Some(page.id.clone());
-    draft.last_synced_at = Some(Utc::now());
+    draft.last_synced_at = Some(now);
+    draft.source_last_edited_at = Some(offset_datetime_to_chrono(page.last_edited_time));
     draft
 }
 

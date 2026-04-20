@@ -13,9 +13,18 @@ use backend::JsonDataProvide;
 #[cfg(feature = "sqlite")]
 use backend::SqliteDataProvide;
 
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::widgets::{Block, BorderType, Borders, Clear, Gauge, Paragraph, Wrap};
+use tokio::sync::mpsc::unbounded_channel;
+
+use crate::notion::{SyncProgress, SyncStage, bootstrap_from_notion, pull_from_notion};
+use crate::settings::notion::NotionSettings;
+
 use super::keymap::Input;
 use super::ui::Styles;
-use super::ui::ui_functions::render_message_centered;
+use super::ui::ui_functions::{centered_rect_exact_height, render_message_centered};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum HandleInputReturnType {
@@ -148,23 +157,142 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             app.assign_priority_to_entries(priority).await?;
         }
         PendingCliCommand::NotionBootstrap { force, database_id } => {
-            terminal.draw(|f| render_message_centered(f, "Bootstrapping from Notion..."))?;
             let mut notion_settings = app.settings.notion.clone();
             if let Some(id) = database_id {
                 notion_settings.database_id = Some(id);
             }
             let outcome =
-                crate::notion::bootstrap_from_notion(&app.data_provide, &notion_settings, force)
-                    .await?;
+                run_notion_bootstrap(terminal, &app.data_provide, &notion_settings, force).await?;
             log::info!(
                 "Notion bootstrap finished: inserted={}, skipped={}",
                 outcome.inserted,
                 outcome.skipped
             );
         }
+        PendingCliCommand::NotionPull { database_id } => {
+            let mut notion_settings = app.settings.notion.clone();
+            if let Some(id) = database_id {
+                notion_settings.database_id = Some(id);
+            }
+            let outcome =
+                run_notion_pull(terminal, &app.data_provide, &notion_settings).await?;
+            log::info!(
+                "Notion pull finished: inserted={}, updated={}, unchanged={}, local_wins={}, errored={}",
+                outcome.inserted,
+                outcome.updated,
+                outcome.unchanged,
+                outcome.local_wins,
+                outcome.errored
+            );
+        }
     }
 
     Ok(())
+}
+
+async fn run_notion_bootstrap<B: Backend, D: DataProvider>(
+    terminal: &mut Terminal<B>,
+    provider: &D,
+    settings: &NotionSettings,
+    force: bool,
+) -> anyhow::Result<crate::notion::bootstrap::BootstrapOutcome> {
+    let (tx, mut rx) = unbounded_channel::<SyncProgress>();
+    let mut latest = SyncProgress {
+        stage: SyncStage::ResolvingDataSource,
+        current: 0,
+        total: 0,
+    };
+    terminal.draw(|f| render_sync_progress(f, &latest))?;
+
+    let bootstrap = bootstrap_from_notion(provider, settings, force, Some(tx));
+    tokio::pin!(bootstrap);
+
+    loop {
+        tokio::select! {
+            result = &mut bootstrap => {
+                return result;
+            }
+            progress = rx.recv() => {
+                if let Some(p) = progress {
+                    latest = p;
+                    terminal.draw(|f| render_sync_progress(f, &latest))?;
+                }
+            }
+        }
+    }
+}
+
+async fn run_notion_pull<B: Backend, D: DataProvider>(
+    terminal: &mut Terminal<B>,
+    provider: &D,
+    settings: &NotionSettings,
+) -> anyhow::Result<crate::notion::PullOutcome> {
+    let (tx, mut rx) = unbounded_channel::<SyncProgress>();
+    let mut latest = SyncProgress {
+        stage: SyncStage::ResolvingDataSource,
+        current: 0,
+        total: 0,
+    };
+    terminal.draw(|f| render_sync_progress(f, &latest))?;
+
+    let pull = pull_from_notion(provider, settings, Some(tx));
+    tokio::pin!(pull);
+
+    loop {
+        tokio::select! {
+            result = &mut pull => {
+                return result;
+            }
+            progress = rx.recv() => {
+                if let Some(p) = progress {
+                    latest = p;
+                    terminal.draw(|f| render_sync_progress(f, &latest))?;
+                }
+            }
+        }
+    }
+}
+
+fn render_sync_progress(frame: &mut Frame, progress: &SyncProgress) {
+    let area = centered_rect_exact_height(60, 7, frame.area());
+    frame.render_widget(Clear, area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_type(BorderType::Rounded)
+        .title(" Notion sync ");
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .margin(1)
+        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .split(inner);
+
+    let stage_line = Paragraph::new(progress.stage.label()).wrap(Wrap { trim: false });
+    frame.render_widget(stage_line, chunks[0]);
+
+    let ratio = if progress.total == 0 {
+        0.0
+    } else {
+        (progress.current as f64 / progress.total as f64).min(1.0)
+    };
+    let gauge_label = if progress.total == 0 {
+        String::new()
+    } else {
+        format!("{} / {}", progress.current, progress.total)
+    };
+    let gauge = Gauge::default()
+        .gauge_style(
+            Style::default()
+                .fg(Color::Green)
+                .bg(Color::Black)
+                .add_modifier(Modifier::BOLD),
+        )
+        .ratio(ratio)
+        .label(gauge_label);
+    frame.render_widget(gauge, chunks[1]);
 }
 
 fn draw_ui<B: Backend, D: DataProvider>(

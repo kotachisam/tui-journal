@@ -65,6 +65,7 @@ impl DataProvider for SqliteDataProvide {
         let entries: Vec<EntryIntermediate> = sqlx::query_as(
             r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
+                entries.updated_at, entries.source_last_edited_at,
                 GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id
@@ -83,16 +84,30 @@ impl DataProvider for SqliteDataProvide {
         Ok(entries)
     }
 
-    async fn add_entry(&self, entry: EntryDraft) -> Result<Entry, ModifyEntryError> {
+    async fn add_entry(&self, mut entry: EntryDraft) -> Result<Entry, ModifyEntryError> {
+        if entry.updated_at.is_none() {
+            entry.updated_at = Some(chrono::Utc::now());
+        }
+
         let row = sqlx::query(
-            r"INSERT INTO entries (title, date, content, priority)
-            VALUES($1, $2, $3, $4)
+            r"INSERT INTO entries (
+                title, date, content, priority,
+                sync_provider, external_id, last_synced_at, deleted_at,
+                updated_at, source_last_edited_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id",
         )
         .bind(&entry.title)
         .bind(entry.date)
         .bind(&entry.content)
         .bind(entry.priority)
+        .bind(&entry.sync_provider)
+        .bind(&entry.external_id)
+        .bind(entry.last_synced_at)
+        .bind(entry.deleted_at)
+        .bind(entry.updated_at)
+        .bind(entry.source_last_edited_at)
         .fetch_one(&self.pool)
         .await
         .map_err(|err| {
@@ -133,19 +148,33 @@ impl DataProvider for SqliteDataProvide {
         Ok(())
     }
 
-    async fn update_entry(&self, entry: Entry) -> Result<Entry, ModifyEntryError> {
+    async fn update_entry(&self, mut entry: Entry) -> Result<Entry, ModifyEntryError> {
+        entry.updated_at = Some(chrono::Utc::now());
+
         sqlx::query(
             r"UPDATE entries
-            Set title = $1,
+            SET title = $1,
                 date = $2,
                 content = $3,
-                priority = $4
-            WHERE id = $5",
+                priority = $4,
+                sync_provider = $5,
+                external_id = $6,
+                last_synced_at = $7,
+                deleted_at = $8,
+                updated_at = $9,
+                source_last_edited_at = $10
+            WHERE id = $11",
         )
         .bind(&entry.title)
         .bind(entry.date)
         .bind(&entry.content)
         .bind(entry.priority)
+        .bind(&entry.sync_provider)
+        .bind(&entry.external_id)
+        .bind(entry.last_synced_at)
+        .bind(entry.deleted_at)
+        .bind(entry.updated_at)
+        .bind(entry.source_last_edited_at)
         .bind(entry.id)
         .execute(&self.pool)
         .await
@@ -208,6 +237,7 @@ impl DataProvider for SqliteDataProvide {
         let sql = format!(
             r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
+                entries.updated_at, entries.source_last_edited_at,
                 GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id

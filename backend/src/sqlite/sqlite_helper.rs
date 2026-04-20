@@ -17,6 +17,8 @@ pub(crate) struct EntryIntermediate {
     pub external_id: Option<String>,
     pub last_synced_at: Option<DateTime<Utc>>,
     pub deleted_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<DateTime<Utc>>,
+    pub source_last_edited_at: Option<DateTime<Utc>>,
 }
 
 impl From<EntryIntermediate> for Entry {
@@ -35,6 +37,8 @@ impl From<EntryIntermediate> for Entry {
             external_id: value.external_id,
             last_synced_at: value.last_synced_at,
             deleted_at: value.deleted_at,
+            updated_at: value.updated_at,
+            source_last_edited_at: value.source_last_edited_at,
         }
     }
 }
@@ -57,6 +61,8 @@ mod tests {
             external_id: None,
             last_synced_at: None,
             deleted_at: None,
+            updated_at: None,
+            source_last_edited_at: None,
         }
     }
 
