@@ -2,6 +2,7 @@ use crate::app::{
     App, HandleInputReturnType, UIComponents,
     ui::{help_popup::KeybindingsTabs, *},
 };
+use crate::settings::notion::SyncMode;
 
 use backend::DataProvider;
 
@@ -25,9 +26,44 @@ pub async fn continue_quit<D: DataProvider>(
         MsgBoxResult::Ok | MsgBoxResult::Cancel => Ok(HandleInputReturnType::Handled),
         MsgBoxResult::Yes => {
             exec_save_entry_content(ui_components, app).await?;
+            Ok(resolve_exit(ui_components, app))
+        }
+        MsgBoxResult::No => Ok(resolve_exit(ui_components, app)),
+    }
+}
+
+/// Decides between an immediate exit and a sync-on-exit prompt. If the user
+/// has unsynced changes and sync_mode permits push, surface the prompt and
+/// defer exit until the user answers. Otherwise exit directly.
+fn resolve_exit<D: DataProvider>(
+    ui_components: &mut UIComponents,
+    app: &App<D>,
+) -> HandleInputReturnType {
+    let push_enabled = matches!(
+        app.settings.notion.sync_mode,
+        SyncMode::Push | SyncMode::TwoWay
+    );
+    let unsynced = app.unsynced_count();
+    if push_enabled && unsynced > 0 {
+        ui_components.show_sync_on_exit_msg_box(unsynced);
+        HandleInputReturnType::Handled
+    } else {
+        HandleInputReturnType::ExitApp
+    }
+}
+
+pub async fn continue_quit_and_sync<D: DataProvider>(
+    _ui_components: &mut UIComponents<'_>,
+    app: &mut App<D>,
+    msg_box_result: MsgBoxResult,
+) -> CmdResult {
+    match msg_box_result {
+        MsgBoxResult::Yes => {
+            app.should_push_on_exit = true;
             Ok(HandleInputReturnType::ExitApp)
         }
         MsgBoxResult::No => Ok(HandleInputReturnType::ExitApp),
+        MsgBoxResult::Ok | MsgBoxResult::Cancel => Ok(HandleInputReturnType::Handled),
     }
 }
 

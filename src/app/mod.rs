@@ -49,6 +49,10 @@ where
     pub settings: Settings,
     pub redraw_after_restore: bool,
     pub filter: Option<Filter>,
+    /// Set during the quit flow when the user opts into pushing unsynced
+    /// changes to Notion before exiting. Read by the runner after the main
+    /// loop returns.
+    pub should_push_on_exit: bool,
     state: AppState,
     /// Keeps history of the changes on entries, enabling undo & redo operations
     history: HistoryManager,
@@ -75,10 +79,27 @@ where
             settings,
             redraw_after_restore: false,
             filter: None,
+            should_push_on_exit: false,
             state: Default::default(),
             history,
             colored_tags,
         }
+    }
+
+    /// Count entries that would be pushed on a sync — either locally modified
+    /// since last sync, or local-only (will be created in Notion on push).
+    pub fn unsynced_count(&self) -> usize {
+        self.entries
+            .iter()
+            .filter(|entry| match entry.sync_provider.as_deref() {
+                None => true,
+                Some(_) => match (entry.updated_at, entry.last_synced_at) {
+                    (Some(updated), Some(synced)) => updated > synced,
+                    (Some(_), None) => true,
+                    _ => false,
+                },
+            })
+            .count()
     }
 
     /// Get entries that meet the filter criteria if any otherwise it returns all entries

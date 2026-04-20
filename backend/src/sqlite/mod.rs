@@ -149,7 +149,9 @@ impl DataProvider for SqliteDataProvide {
     }
 
     async fn update_entry(&self, mut entry: Entry) -> Result<Entry, ModifyEntryError> {
-        entry.updated_at = Some(chrono::Utc::now());
+        if entry.updated_at.is_none() {
+            entry.updated_at = Some(chrono::Utc::now());
+        }
 
         sqlx::query(
             r"UPDATE entries

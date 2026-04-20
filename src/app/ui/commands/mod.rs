@@ -68,6 +68,9 @@ pub enum UICommand {
     PageDownEntries,
     Undo,
     Redo,
+    /// Pending-only: fired after the save-changes prompt when unsynced
+    /// entries exist and sync_mode allows push. Not bound to any key.
+    QuitAndSync,
 }
 
 #[derive(Debug, Clone)]
@@ -226,6 +229,10 @@ impl UICommand {
             ),
             UICommand::Undo => CommandInfo::new("Undo", "Undo the latest change on journals"),
             UICommand::Redo => CommandInfo::new("Redo", "Redo the latest change on journals"),
+            UICommand::QuitAndSync => CommandInfo::new(
+                "Quit and sync",
+                "Push unsynced changes to Notion on exit",
+            ),
         }
     }
 
@@ -286,6 +293,9 @@ impl UICommand {
             }
             UICommand::Undo => exec_undo(ui_components, app).await,
             UICommand::Redo => exec_redo(ui_components, app).await,
+            UICommand::QuitAndSync => {
+                unreachable!("QuitAndSync is pending-only, never dispatched as a keymap")
+            }
         }
     }
 
@@ -396,6 +406,9 @@ impl UICommand {
             }
             UICommand::Undo => continue_undo(ui_components, app, msg_box_result).await,
             UICommand::Redo => continue_redo(ui_components, app, msg_box_result).await,
+            UICommand::QuitAndSync => {
+                continue_quit_and_sync(ui_components, app, msg_box_result).await
+            }
         }
     }
 }

@@ -128,6 +128,27 @@ where
                             log::error!("Persisting app state failed: Error info {err}");
                         }
 
+                        if app.should_push_on_exit {
+                            match run_notion_push(
+                                terminal,
+                                &app.data_provide,
+                                &app.settings.notion,
+                            )
+                            .await
+                            {
+                                Ok(outcome) => log::info!(
+                                    "Exit-time Notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
+                                    outcome.created,
+                                    outcome.updated,
+                                    outcome.archived,
+                                    outcome.skipped_unchanged,
+                                    outcome.skipped_conflict,
+                                    outcome.errored,
+                                ),
+                                Err(err) => log::error!("Exit-time Notion push failed: {err}"),
+                            }
+                        }
+
                         return Ok(());
                     }
                     HandleInputReturnType::Ignore => {}

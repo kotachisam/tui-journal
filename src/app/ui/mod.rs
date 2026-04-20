@@ -436,6 +436,18 @@ impl UIComponents<'_> {
         self.popup_stack.push(Popup::MsgBox(Box::new(msg_box)));
     }
 
+    pub fn show_sync_on_exit_msg_box(&mut self, unsynced: usize) {
+        self.pending_command = Some(UICommand::QuitAndSync);
+        let noun = if unsynced == 1 { "entry" } else { "entries" };
+        let msg = MsgBoxType::Question(format!(
+            "{unsynced} unsynced {noun}. Push to Notion before exiting?"
+        ));
+        let msg_actions = MsgBoxActions::YesNoCancel;
+        let msg_box = MsgBox::new(msg, msg_actions);
+
+        self.popup_stack.push(Popup::MsgBox(Box::new(msg_box)));
+    }
+
     #[inline]
     pub fn has_unsaved(&self) -> bool {
         self.editor.has_unsaved()
