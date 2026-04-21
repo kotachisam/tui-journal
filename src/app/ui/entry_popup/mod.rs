@@ -246,7 +246,7 @@ impl EntryPopup<'_> {
                 ActiveText::Tags => (
                     active_block_style,
                     active_cursor_style,
-                    "Tags - A comma-separated list",
+                    "Tags - comma-separated | <Ctrl-T>: browse existing",
                 ),
                 _ => (reset_style, deactivate_cursor_style, "Tags"),
             };
