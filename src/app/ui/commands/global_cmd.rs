@@ -26,25 +26,33 @@ pub async fn continue_quit<D: DataProvider>(
         MsgBoxResult::Ok | MsgBoxResult::Cancel => Ok(HandleInputReturnType::Handled),
         MsgBoxResult::Yes => {
             exec_save_entry_content(ui_components, app).await?;
-            Ok(resolve_exit(ui_components, app))
+            Ok(resolve_exit(ui_components, app).await)
         }
-        MsgBoxResult::No => Ok(resolve_exit(ui_components, app)),
+        MsgBoxResult::No => Ok(resolve_exit(ui_components, app).await),
     }
 }
 
-/// Decides between an immediate exit and a sync-on-exit prompt. If the user
-/// has unsynced changes and sync_mode permits push, surface the prompt and
-/// defer exit until the user answers. Otherwise exit directly.
-fn resolve_exit<D: DataProvider>(
-    ui_components: &mut UIComponents,
-    app: &App<D>,
+/// Decides between an immediate exit and a sync-on-exit prompt. Refreshes
+/// entries from the data provider first so the unsynced count reflects
+/// current DB state, not any in-memory drift from prior sync operations.
+async fn resolve_exit<D: DataProvider>(
+    ui_components: &mut UIComponents<'_>,
+    app: &mut App<D>,
 ) -> HandleInputReturnType {
     let push_enabled = matches!(
         app.settings.notion.sync_mode,
         SyncMode::Push | SyncMode::TwoWay
     );
+    if !push_enabled {
+        return HandleInputReturnType::ExitApp;
+    }
+
+    if let Err(err) = app.load_entries().await {
+        log::warn!("Failed to refresh entries before exit-time sync check: {err}");
+    }
+
     let unsynced = app.unsynced_count();
-    if push_enabled && unsynced > 0 {
+    if unsynced > 0 {
         ui_components.show_sync_on_exit_msg_box(unsynced);
         HandleInputReturnType::Handled
     } else {
