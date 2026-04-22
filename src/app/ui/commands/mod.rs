@@ -71,6 +71,10 @@ pub enum UICommand {
     /// Pending-only: fired after the save-changes prompt when unsynced
     /// entries exist and sync_mode allows push. Not bound to any key.
     QuitAndSync,
+    /// Opens the template picker for creating a new entry from a preset.
+    ShowTemplatePicker,
+    /// Pending-only: resolves the "no templates yet, create defaults?" msgbox.
+    CreateDefaultTemplates,
 }
 
 #[derive(Debug, Clone)]
@@ -233,6 +237,14 @@ impl UICommand {
                 "Quit and sync",
                 "Push unsynced changes to Notion on exit",
             ),
+            UICommand::ShowTemplatePicker => CommandInfo::new(
+                "Pick template for new journal",
+                "Open a popup listing journal templates from the templates dir and pre-fill a new entry from the selected one",
+            ),
+            UICommand::CreateDefaultTemplates => CommandInfo::new(
+                "Create default templates",
+                "Create the templates directory and populate it with starter templates",
+            ),
         }
     }
 
@@ -295,6 +307,10 @@ impl UICommand {
             UICommand::Redo => exec_redo(ui_components, app).await,
             UICommand::QuitAndSync => {
                 unreachable!("QuitAndSync is pending-only, never dispatched as a keymap")
+            }
+            UICommand::ShowTemplatePicker => exec_show_template_picker(ui_components),
+            UICommand::CreateDefaultTemplates => {
+                unreachable!("CreateDefaultTemplates is pending-only, never dispatched as a keymap")
             }
         }
     }
@@ -408,6 +424,12 @@ impl UICommand {
             UICommand::Redo => continue_redo(ui_components, app, msg_box_result).await,
             UICommand::QuitAndSync => {
                 continue_quit_and_sync(ui_components, app, msg_box_result).await
+            }
+            UICommand::ShowTemplatePicker => {
+                unreachable!("ShowTemplatePicker has no msgbox continuation")
+            }
+            UICommand::CreateDefaultTemplates => {
+                continue_create_default_templates(ui_components, msg_box_result)
             }
         }
     }

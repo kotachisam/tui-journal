@@ -185,6 +185,10 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::CreateEntry,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('N'), KeyModifiers::SHIFT),
+            UICommand::ShowTemplatePicker,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Char('e'), KeyModifiers::NONE),
             UICommand::EditCurrentEntry,
         ),

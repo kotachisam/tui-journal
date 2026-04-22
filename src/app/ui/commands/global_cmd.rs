@@ -1,5 +1,6 @@
 use crate::app::{
     App, HandleInputReturnType, UIComponents,
+    templates::{create_default_templates, list_templates, templates_dir},
     ui::{help_popup::KeybindingsTabs, *},
 };
 use crate::settings::notion::SyncMode;
@@ -222,6 +223,43 @@ async fn redo<D: DataProvider>(
     }
 
     Ok(())
+}
+
+pub fn exec_show_template_picker(ui_components: &mut UIComponents) -> CmdResult {
+    match list_templates() {
+        Ok(templates) if !templates.is_empty() => {
+            ui_components.open_template_picker(templates);
+        }
+        Ok(_) => {
+            let dir = templates_dir()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| "<unknown>".to_owned());
+            ui_components.show_create_default_templates_prompt(dir);
+        }
+        Err(err) => {
+            ui_components.show_err_msg(format!("Failed to list templates: {err}"));
+        }
+    }
+    Ok(HandleInputReturnType::Handled)
+}
+
+pub fn continue_create_default_templates(
+    ui_components: &mut UIComponents,
+    msg_box_result: MsgBoxResult,
+) -> CmdResult {
+    if matches!(msg_box_result, MsgBoxResult::Yes) {
+        match create_default_templates() {
+            Ok(dir) => {
+                let msg = format!(
+                    "Default templates created at:\n{}\n\nPress Shift+N again to use.",
+                    dir.display()
+                );
+                ui_components.show_info_msg(msg);
+            }
+            Err(err) => ui_components.show_err_msg(format!("Failed to create templates: {err}")),
+        }
+    }
+    Ok(HandleInputReturnType::Handled)
 }
 
 pub async fn continue_redo<D: DataProvider>(

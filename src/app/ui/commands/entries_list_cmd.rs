@@ -2,7 +2,7 @@ use std::{collections::HashMap, env};
 
 use crate::app::{App, UIComponents, external_editor, ui::*};
 
-use backend::DataProvider;
+use backend::{DataProvider, Entry};
 
 use super::{
     CmdResult,
@@ -437,11 +437,37 @@ pub fn exec_show_fuzzy_find<D: DataProvider>(
 fn show_fuzzy_find<D: DataProvider>(ui_components: &mut UIComponents, app: &mut App<D>) {
     let entries: HashMap<u32, String> = app
         .get_active_entries()
-        .map(|entry| (entry.id, entry.title.to_owned()))
+        .map(|entry| (entry.id, build_searchable_text(entry)))
         .collect();
     ui_components
         .popup_stack
         .push(Popup::FuzzFind(Box::new(FuzzFindPopup::new(entries))));
+}
+
+/// Combines an entry's title and a single-line content preview into one
+/// searchable string. The fuzzy matcher scores across the entire string, so
+/// queries hit both title and content. Newlines and tabs are collapsed to
+/// spaces so the display stays on a single line.
+fn build_searchable_text(entry: &Entry) -> String {
+    const PREVIEW_LEN: usize = 120;
+    const SEPARATOR: &str = " — ";
+
+    let content_preview: String = entry
+        .content
+        .chars()
+        .map(|c| if c.is_whitespace() { ' ' } else { c })
+        .take(PREVIEW_LEN)
+        .collect();
+
+    let title_trim = entry.title.trim();
+    let content_trim = content_preview.trim();
+
+    match (title_trim.is_empty(), content_trim.is_empty()) {
+        (true, true) => String::new(),
+        (true, false) => content_trim.to_owned(),
+        (false, true) => title_trim.to_owned(),
+        (false, false) => format!("{title_trim}{SEPARATOR}{content_trim}"),
+    }
 }
 
 pub async fn continue_fuzzy_find<D: DataProvider>(

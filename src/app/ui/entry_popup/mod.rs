@@ -10,7 +10,7 @@ use ratatui::{
 use tui_textarea::{CursorMove, TextArea};
 
 use crate::{
-    app::{App, keymap::Input},
+    app::{App, keymap::Input, templates::Template},
     settings::Settings,
 };
 
@@ -37,6 +37,9 @@ pub struct EntryPopup<'a> {
     tags_err_msg: String,
     priority_err_msg: String,
     tags_popup: Option<TagsPopup>,
+    /// When set, the confirm path uses this as the new entry's content
+    /// instead of creating an empty one. Populated by `from_template`.
+    template_content: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -88,7 +91,52 @@ impl EntryPopup<'_> {
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             tags_popup: None,
+            template_content: None,
         }
+    }
+
+    /// Seeds a new-entry popup from a template. Title, tags, and priority
+    /// come from the template's frontmatter (any can be overridden by the
+    /// user before confirming). Date defaults to today. Content is the
+    /// template's body.
+    pub fn from_template(template: &Template, settings: &Settings) -> Self {
+        let title_txt = TextArea::new(vec![template.title.clone().unwrap_or_default()]);
+
+        let date = Local::now();
+        let date_txt = TextArea::new(vec![format!(
+            "{:02}-{:02}-{}",
+            date.day(),
+            date.month(),
+            date.year()
+        )]);
+
+        let tags_txt = TextArea::new(vec![tags_to_text(&template.tags)]);
+
+        let priority_value = template
+            .priority
+            .or(settings.default_journal_priority);
+        let priority_txt = if let Some(priority) = priority_value {
+            TextArea::new(vec![priority.to_string()])
+        } else {
+            TextArea::default()
+        };
+
+        let mut popup = Self {
+            title_txt,
+            date_txt,
+            tags_txt,
+            priority_txt,
+            is_edit_entry: false,
+            active_txt: ActiveText::Title,
+            title_err_msg: String::default(),
+            date_err_msg: String::default(),
+            tags_err_msg: String::default(),
+            priority_err_msg: String::default(),
+            tags_popup: None,
+            template_content: Some(template.content.clone()),
+        };
+        popup.validate_all();
+        popup
     }
 
     pub fn from_entry(entry: &Entry) -> Self {
@@ -124,6 +172,7 @@ impl EntryPopup<'_> {
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             tags_popup: None,
+            template_content: None,
         };
 
         entry_popup.validate_all();
@@ -503,7 +552,13 @@ impl EntryPopup<'_> {
                 .await?;
             Ok(EntryPopupInputReturn::UpdateCurrentEntry)
         } else {
-            let entry_id = app.add_entry(title, date, tags, priority).await?;
+            let entry_id = match self.template_content.take() {
+                Some(content) if !content.is_empty() => {
+                    app.add_entry_with_content(title, date, tags, priority, content)
+                        .await?
+                }
+                _ => app.add_entry(title, date, tags, priority).await?,
+            };
             Ok(EntryPopupInputReturn::AddEntry(entry_id))
         }
     }

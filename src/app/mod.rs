@@ -25,6 +25,7 @@ mod keymap;
 mod runner;
 mod sorter;
 pub mod state;
+pub mod templates;
 #[cfg(test)]
 mod test;
 pub mod ui;
@@ -166,6 +167,25 @@ where
     ) -> anyhow::Result<u32> {
         self.add_entry_intern(title, date, tags, priority, None, HistoryStack::Undo)
             .await
+    }
+
+    pub async fn add_entry_with_content(
+        &mut self,
+        title: String,
+        date: DateTime<Utc>,
+        tags: Vec<String>,
+        priority: Option<u32>,
+        content: String,
+    ) -> anyhow::Result<u32> {
+        self.add_entry_intern(
+            title,
+            date,
+            tags,
+            priority,
+            Some(content),
+            HistoryStack::Undo,
+        )
+        .await
     }
 
     /// Creates an [`Entry`] from the given arguments, registering the change to the provided

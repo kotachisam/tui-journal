@@ -15,6 +15,7 @@ use self::{
     help_popup::{HelpInputInputReturn, HelpPopup},
     msg_box::{MsgBox, MsgBoxActions, MsgBoxType},
     sort_popup::SortPopup,
+    template_popup::{TemplatePopup, TemplatePopupReturn},
 };
 
 use super::{
@@ -43,6 +44,7 @@ mod fuzz_find;
 mod help_popup;
 mod msg_box;
 mod sort_popup;
+mod template_popup;
 pub mod themes;
 pub mod ui_functions;
 
@@ -63,6 +65,7 @@ pub enum Popup<'a> {
     Filter(Box<FilterPopup<'a>>),
     FuzzFind(Box<FuzzFindPopup<'a>>),
     Sort(Box<SortPopup>),
+    Template(Box<TemplatePopup>),
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +188,9 @@ impl UIComponents<'_> {
                 }
                 Popup::FuzzFind(fuzz_find) => fuzz_find.render_widget(f, f.area(), &self.styles),
                 Popup::Sort(sort_popup) => sort_popup.render_widget(f, f.area(), &self.styles),
+                Popup::Template(template_popup) => {
+                    template_popup.render_widget(f, f.area(), &self.styles)
+                }
             }
         }
     }
@@ -344,6 +350,21 @@ impl UIComponents<'_> {
                             self.set_current_entry(current_entry_id, app);
                         }
                     },
+                    Popup::Template(template_popup) => {
+                        match template_popup.handle_input(input) {
+                            TemplatePopupReturn::Keep => {}
+                            TemplatePopupReturn::Cancel => {
+                                self.popup_stack.pop().expect("popup stack isn't empty");
+                            }
+                            TemplatePopupReturn::Apply(template) => {
+                                self.popup_stack.pop().expect("popup stack isn't empty");
+                                let entry_popup =
+                                    EntryPopup::from_template(&template, &app.settings);
+                                self.popup_stack
+                                    .push(Popup::Entry(Box::new(entry_popup)));
+                            }
+                        }
+                    }
                 }
                 Ok(HandleInputReturnType::Handled)
             }
@@ -455,6 +476,24 @@ impl UIComponents<'_> {
 
     pub fn show_err_msg(&mut self, err_txt: String) {
         self.show_msg_box(MsgBoxType::Error(err_txt), MsgBoxActions::Ok, None);
+    }
+
+    pub fn show_info_msg(&mut self, txt: String) {
+        self.show_msg_box(MsgBoxType::Info(txt), MsgBoxActions::Ok, None);
+    }
+
+    pub fn open_template_picker(&mut self, templates: Vec<super::templates::Template>) {
+        let popup = TemplatePopup::new(templates);
+        self.popup_stack.push(Popup::Template(Box::new(popup)));
+    }
+
+    pub fn show_create_default_templates_prompt(&mut self, dir_display: String) {
+        self.pending_command = Some(UICommand::CreateDefaultTemplates);
+        let msg = MsgBoxType::Question(format!(
+            "No templates found at:\n{dir_display}\n\nCreate default templates there now?"
+        ));
+        let msg_box = MsgBox::new(msg, MsgBoxActions::YesNoCancel);
+        self.popup_stack.push(Popup::MsgBox(Box::new(msg_box)));
     }
 
     pub fn update_current_entry<D: DataProvider>(&mut self, app: &mut App<D>) {
