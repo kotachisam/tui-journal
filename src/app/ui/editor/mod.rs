@@ -57,7 +57,7 @@ impl<'a> Editor<'a> {
             is_active: false,
             is_dirty: false,
             has_unsaved: false,
-            show_preview: false,
+            show_preview: true,
             preview_scroll: 0,
         }
     }
@@ -83,10 +83,7 @@ impl<'a> Editor<'a> {
                 if let Some(entry) = app.get_entry(id) {
                     self.is_dirty = false;
                     let lines = entry.content.lines().map(|line| line.to_owned()).collect();
-                    let mut text_area = TextArea::new(lines);
-                    text_area.move_cursor(tui_textarea::CursorMove::Bottom);
-                    text_area.move_cursor(tui_textarea::CursorMove::End);
-                    text_area
+                    TextArea::new(lines)
                 } else {
                     TextArea::default()
                 }
@@ -95,6 +92,9 @@ impl<'a> Editor<'a> {
         };
 
         self.text_area = text_area;
+        self.mode = EditorMode::Normal;
+        self.show_preview = true;
+        self.preview_scroll = 0;
 
         self.refresh_has_unsaved(app);
     }
@@ -339,6 +339,8 @@ impl<'a> Editor<'a> {
     }
 
     pub fn set_editor_mode(&mut self, mode: EditorMode) {
+        let was_previewing = self.show_preview;
+
         match (self.mode, mode) {
             (EditorMode::Normal, EditorMode::Visual) => {
                 self.text_area.start_selection();
@@ -350,6 +352,10 @@ impl<'a> Editor<'a> {
         }
 
         if matches!(mode, EditorMode::Insert | EditorMode::Visual) {
+            if matches!(mode, EditorMode::Insert) && was_previewing {
+                self.text_area.move_cursor(tui_textarea::CursorMove::Bottom);
+                self.text_area.move_cursor(tui_textarea::CursorMove::End);
+            }
             self.show_preview = false;
             self.preview_scroll = 0;
         }

@@ -53,6 +53,34 @@ pub trait DataProvider {
     ) -> anyhow::Result<Vec<EntryRevision>> {
         Ok(Vec::new())
     }
+
+    /// Records a user-visible action for the activity log. Best-effort;
+    /// callers should not propagate failures — logging must never break
+    /// the operation it's describing. Backends that don't support this
+    /// silently drop the event.
+    async fn log_activity(
+        &self,
+        _action_type: &str,
+        _entry_id: Option<u32>,
+        _details: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Returns activity log entries newest-first. Backends that don't
+    /// support activity logging return an empty vec.
+    async fn get_activity_log(&self) -> anyhow::Result<Vec<ActivityLogEntry>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivityLogEntry {
+    pub id: u32,
+    pub timestamp: DateTime<Utc>,
+    pub action_type: String,
+    pub entry_id: Option<u32>,
+    pub details: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
