@@ -376,6 +376,24 @@ impl UIComponents<'_> {
                         RevisionPopupReturn::Close => {
                             self.popup_stack.pop().expect("popup stack isn't empty");
                         }
+                        RevisionPopupReturn::Restore(revision) => {
+                            self.popup_stack.pop().expect("popup stack isn't empty");
+                            let target_id = revision.entry_id;
+                            match app.restore_from_revision(target_id, &revision).await {
+                                Ok(()) => {
+                                    self.set_current_entry(Some(target_id), app);
+                                    self.show_info_msg(
+                                        "Revision restored. The pre-restore state has been saved as a new entry in the history."
+                                            .to_owned(),
+                                    );
+                                }
+                                Err(err) => {
+                                    self.show_err_msg(format!(
+                                        "Failed to restore revision: {err}"
+                                    ));
+                                }
+                            }
+                        }
                     },
                 }
                 Ok(HandleInputReturnType::Handled)

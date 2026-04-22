@@ -162,6 +162,44 @@ where
         self.data_provide.get_revisions_for_entry(entry_id).await
     }
 
+    /// Overwrites the entry's user-editable fields with the revision's
+    /// contents. Preserves id and sync metadata. The existing update_entry
+    /// snapshot-before-write hook captures the pre-restore state as a new
+    /// revision, so restores are themselves undoable via the same
+    /// mechanism.
+    pub async fn restore_from_revision(
+        &mut self,
+        entry_id: u32,
+        revision: &EntryRevision,
+    ) -> anyhow::Result<()> {
+        let mut entry = self
+            .entries
+            .iter()
+            .find(|e| e.id == entry_id)
+            .cloned()
+            .context("Entry not found in memory when restoring revision")?;
+
+        entry.title = revision.title.clone();
+        entry.date = revision.date;
+        entry.content = revision.content.clone();
+        entry.tags = revision.tags.clone();
+        entry.priority = revision.priority;
+        entry.updated_at = Some(Utc::now());
+
+        self.data_provide.update_entry(entry.clone()).await?;
+
+        if let Some(in_mem) = self.entries.iter_mut().find(|e| e.id == entry_id) {
+            *in_mem = entry;
+        }
+
+        self.sort_entries();
+        self.update_filter();
+        self.update_filtered_out_entries();
+        self.update_colored_tags();
+
+        Ok(())
+    }
+
     pub async fn add_entry(
         &mut self,
         title: String,

@@ -12,12 +12,13 @@ use crate::app::keymap::Input;
 use super::{Styles, ui_functions::centered_rect};
 
 const FOOTER_TEXT: &str =
-    "Up/Down or j/k: Navigate | Esc, q or <Ctrl-c>: Close";
+    "Up/Down or j/k: Navigate | r: Restore selected | Esc, q or <Ctrl-c>: Close";
 const FOOTER_MARGIN: u16 = 4;
 
 pub enum RevisionPopupReturn {
     Keep,
     Close,
+    Restore(EntryRevision),
 }
 
 pub struct RevisionPopup {
@@ -155,6 +156,13 @@ impl RevisionPopup {
             }
             KeyCode::Esc | KeyCode::Char('q') => RevisionPopupReturn::Close,
             KeyCode::Char('c') if has_control => RevisionPopupReturn::Close,
+            KeyCode::Char('r') => {
+                self.state
+                    .selected()
+                    .and_then(|idx| self.revisions.get(idx).cloned())
+                    .map(RevisionPopupReturn::Restore)
+                    .unwrap_or(RevisionPopupReturn::Keep)
+            }
             _ => RevisionPopupReturn::Keep,
         }
     }
