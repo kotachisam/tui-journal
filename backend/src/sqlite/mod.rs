@@ -153,6 +153,31 @@ impl DataProvider for SqliteDataProvide {
             entry.updated_at = Some(chrono::Utc::now());
         }
 
+        // Snapshot the entry's pre-update state into revisions before
+        // applying the new values. Silently a no-op if the entry doesn't
+        // exist (shouldn't happen under normal flow but would be benign).
+        sqlx::query(
+            r"INSERT INTO entry_revisions
+                (entry_id, title, date, content, priority, tags, saved_at)
+            SELECT
+                e.id,
+                e.title,
+                e.date,
+                e.content,
+                e.priority,
+                (SELECT GROUP_CONCAT(tag, ',') FROM tags WHERE entry_id = e.id),
+                COALESCE(e.updated_at, e.date)
+            FROM entries e
+            WHERE e.id = $1",
+        )
+        .bind(entry.id)
+        .execute(&self.pool)
+        .await
+        .map_err(|err| {
+            log::error!("Snapshot entry revision failed. Error info: {err}");
+            anyhow!(err)
+        })?;
+
         sqlx::query(
             r"UPDATE entries
             SET title = $1,
@@ -282,5 +307,26 @@ impl DataProvider for SqliteDataProvide {
             })?;
 
         Ok(())
+    }
+
+    async fn get_revisions_for_entry(
+        &self,
+        entry_id: u32,
+    ) -> anyhow::Result<Vec<EntryRevision>> {
+        let rows: Vec<sqlite_helper::RevisionRow> = sqlx::query_as(
+            r"SELECT id, entry_id, title, date, content, priority, tags, saved_at
+            FROM entry_revisions
+            WHERE entry_id = $1
+            ORDER BY saved_at DESC, id DESC",
+        )
+        .bind(entry_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|err| {
+            log::error!("Loading revisions failed. Error Info {err}");
+            anyhow!(err)
+        })?;
+
+        Ok(rows.into_iter().map(EntryRevision::from).collect())
     }
 }

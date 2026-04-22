@@ -14,6 +14,7 @@ use self::{
     fuzz_find::FuzzFindPopup,
     help_popup::{HelpInputInputReturn, HelpPopup},
     msg_box::{MsgBox, MsgBoxActions, MsgBoxType},
+    revision_popup::{RevisionPopup, RevisionPopupReturn},
     sort_popup::SortPopup,
     template_popup::{TemplatePopup, TemplatePopupReturn},
 };
@@ -43,6 +44,7 @@ mod footer;
 mod fuzz_find;
 mod help_popup;
 mod msg_box;
+mod revision_popup;
 mod sort_popup;
 mod template_popup;
 pub mod themes;
@@ -66,6 +68,7 @@ pub enum Popup<'a> {
     FuzzFind(Box<FuzzFindPopup<'a>>),
     Sort(Box<SortPopup>),
     Template(Box<TemplatePopup>),
+    Revision(Box<RevisionPopup>),
 }
 
 #[derive(Debug, Clone)]
@@ -190,6 +193,9 @@ impl UIComponents<'_> {
                 Popup::Sort(sort_popup) => sort_popup.render_widget(f, f.area(), &self.styles),
                 Popup::Template(template_popup) => {
                     template_popup.render_widget(f, f.area(), &self.styles)
+                }
+                Popup::Revision(rev_popup) => {
+                    rev_popup.render_widget(f, f.area(), &self.styles)
                 }
             }
         }
@@ -365,6 +371,12 @@ impl UIComponents<'_> {
                             }
                         }
                     }
+                    Popup::Revision(rev_popup) => match rev_popup.handle_input(input) {
+                        RevisionPopupReturn::Keep => {}
+                        RevisionPopupReturn::Close => {
+                            self.popup_stack.pop().expect("popup stack isn't empty");
+                        }
+                    },
                 }
                 Ok(HandleInputReturnType::Handled)
             }
@@ -485,6 +497,15 @@ impl UIComponents<'_> {
     pub fn open_template_picker(&mut self, templates: Vec<super::templates::Template>) {
         let popup = TemplatePopup::new(templates);
         self.popup_stack.push(Popup::Template(Box::new(popup)));
+    }
+
+    pub fn open_revision_popup(
+        &mut self,
+        revisions: Vec<backend::EntryRevision>,
+        entry_title: String,
+    ) {
+        let popup = RevisionPopup::new(revisions, entry_title);
+        self.popup_stack.push(Popup::Revision(Box::new(popup)));
     }
 
     pub fn show_create_default_templates_prompt(&mut self, dir_display: String) {

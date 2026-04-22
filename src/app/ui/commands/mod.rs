@@ -75,6 +75,8 @@ pub enum UICommand {
     ShowTemplatePicker,
     /// Pending-only: resolves the "no templates yet, create defaults?" msgbox.
     CreateDefaultTemplates,
+    /// Opens the revision history popup for the current entry.
+    ShowRevisionHistory,
 }
 
 #[derive(Debug, Clone)]
@@ -245,6 +247,10 @@ impl UICommand {
                 "Create default templates",
                 "Create the templates directory and populate it with starter templates",
             ),
+            UICommand::ShowRevisionHistory => CommandInfo::new(
+                "Show revision history",
+                "Open a popup listing prior snapshots of the current journal entry",
+            ),
         }
     }
 
@@ -311,6 +317,9 @@ impl UICommand {
             UICommand::ShowTemplatePicker => exec_show_template_picker(ui_components),
             UICommand::CreateDefaultTemplates => {
                 unreachable!("CreateDefaultTemplates is pending-only, never dispatched as a keymap")
+            }
+            UICommand::ShowRevisionHistory => {
+                exec_show_revision_history(ui_components, app).await
             }
         }
     }
@@ -430,6 +439,9 @@ impl UICommand {
             }
             UICommand::CreateDefaultTemplates => {
                 continue_create_default_templates(ui_components, msg_box_result)
+            }
+            UICommand::ShowRevisionHistory => {
+                unreachable!("ShowRevisionHistory has no msgbox continuation")
             }
         }
     }

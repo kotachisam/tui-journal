@@ -44,6 +44,27 @@ pub trait DataProvider {
     }
     /// Assigns priority to all entries that don't have a priority assigned to
     async fn assign_priority_to_entries(&self, priority: u32) -> anyhow::Result<()>;
+
+    /// Returns prior snapshots of the given entry, newest first. Backends
+    /// that don't support revisioning return an empty vec.
+    async fn get_revisions_for_entry(
+        &self,
+        _entry_id: u32,
+    ) -> anyhow::Result<Vec<EntryRevision>> {
+        Ok(Vec::new())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EntryRevision {
+    pub id: u32,
+    pub entry_id: u32,
+    pub title: String,
+    pub date: DateTime<Utc>,
+    pub content: String,
+    pub priority: Option<u32>,
+    pub tags: Vec<String>,
+    pub saved_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

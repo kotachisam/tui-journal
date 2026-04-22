@@ -189,6 +189,10 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::ShowTemplatePicker,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('h'), KeyModifiers::NONE),
+            UICommand::ShowRevisionHistory,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Char('e'), KeyModifiers::NONE),
             UICommand::EditCurrentEntry,
         ),

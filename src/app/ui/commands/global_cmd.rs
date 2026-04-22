@@ -250,9 +250,13 @@ pub fn continue_create_default_templates(
     if matches!(msg_box_result, MsgBoxResult::Yes) {
         match create_default_templates() {
             Ok(dir) => {
+                let path = dir.display().to_string();
+                let clipboard_note = match copy_path_to_clipboard(&path) {
+                    Ok(()) => "Path copied to clipboard — paste in Finder (Cmd+Shift+G) to open the folder.",
+                    Err(_) => "Clipboard copy failed; path shown above.",
+                };
                 let msg = format!(
-                    "Default templates created at:\n{}\n\nPress Shift+N again to use.",
-                    dir.display()
+                    "Templates created at:\n{path}\n\n{clipboard_note}\n\nSee README.md in that directory for the format. Copy and edit any .md file to make your own — the filename becomes the template name. Press Shift+N again to pick one.",
                 );
                 ui_components.show_info_msg(msg);
             }
@@ -260,6 +264,11 @@ pub fn continue_create_default_templates(
         }
     }
     Ok(HandleInputReturnType::Handled)
+}
+
+fn copy_path_to_clipboard(path: &str) -> Result<(), arboard::Error> {
+    let mut clipboard = arboard::Clipboard::new()?;
+    clipboard.set_text(path.to_owned())
 }
 
 pub async fn continue_redo<D: DataProvider>(

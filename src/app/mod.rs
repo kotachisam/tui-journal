@@ -5,7 +5,7 @@ use self::{
 };
 use crate::settings::Settings;
 use anyhow::{Context, anyhow, bail};
-use backend::{DataProvider, EntriesDTO, Entry, EntryDraft};
+use backend::{DataProvider, EntriesDTO, Entry, EntryDraft, EntryRevision};
 use chrono::{DateTime, Utc};
 use colored_tags::ColoredTagsManager;
 use filter::criterion::TagFilterOption;
@@ -156,6 +156,10 @@ where
         self.update_colored_tags();
 
         Ok(())
+    }
+
+    pub async fn get_revisions(&self, entry_id: u32) -> anyhow::Result<Vec<EntryRevision>> {
+        self.data_provide.get_revisions_for_entry(entry_id).await
     }
 
     pub async fn add_entry(

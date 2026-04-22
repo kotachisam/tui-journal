@@ -79,6 +79,11 @@ pub fn create_default_templates() -> anyhow::Result<PathBuf> {
         fs::write(&gratitude, DEFAULT_GRATITUDE_TEMPLATE)?;
     }
 
+    let readme = dir.join("README.md");
+    if !readme.exists() {
+        fs::write(&readme, TEMPLATES_README)?;
+    }
+
     Ok(dir)
 }
 
@@ -189,6 +194,55 @@ Three things I am grateful for today:
 1.
 2.
 3.
+"#;
+
+const TEMPLATES_README: &str = r#"# tui-journal templates
+
+Each `.md` file in this directory becomes a selectable template in the
+Shift+N picker. The filename (without `.md`) is what the picker shows.
+
+## Format
+
+A template is plain markdown. Optional YAML frontmatter at the top can
+pre-fill fields in the new-entry popup:
+
+```
+---
+title: Morning pages
+tags: [reflection, daily]
+priority: 2
+---
+Body content that seeds the entry's content field goes here.
+```
+
+Supported frontmatter keys:
+
+- `title` — string. Pre-fills the Title field.
+- `tags`  — comma-separated list or YAML flow sequence
+            (e.g. `[one, two]`). Pre-fills the Tags field.
+- `priority` — positive integer. Pre-fills the Priority field.
+
+Frontmatter is optional. Files without it are treated as body-only
+templates; the Title/Tags/Priority fields default to empty.
+
+## Adding a new template
+
+1. Copy any existing template (`daily-reflection.md` is a good start).
+2. Rename the copy to something memorable — that name shows up in the
+   picker.
+3. Edit the frontmatter (or delete it if you don't want pre-fills) and
+   the body to taste.
+4. Shift+N inside `tjournal` will pick up the new file next time.
+
+## Notes
+
+- Values can be edited from inside the new-entry popup after selection,
+  so templates are starting points, not strict forms.
+- The date is always today's date when the template is selected — it's
+  not part of the template spec.
+- Unknown frontmatter keys are ignored, so you can add your own notes
+  inside the frontmatter without breaking anything (but it's cleaner
+  to keep them out).
 "#;
 
 #[cfg(test)]

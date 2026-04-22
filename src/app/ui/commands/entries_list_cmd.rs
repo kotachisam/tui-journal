@@ -434,6 +434,27 @@ pub fn exec_show_fuzzy_find<D: DataProvider>(
     Ok(HandleInputReturnType::Handled)
 }
 
+pub async fn exec_show_revision_history<D: DataProvider>(
+    ui_components: &mut UIComponents<'_>,
+    app: &mut App<D>,
+) -> CmdResult {
+    let Some(current) = app.get_current_entry() else {
+        return Ok(HandleInputReturnType::Handled);
+    };
+    let entry_id = current.id;
+    let entry_title = current.title.clone();
+
+    match app.get_revisions(entry_id).await {
+        Ok(revisions) => {
+            ui_components.open_revision_popup(revisions, entry_title);
+        }
+        Err(err) => {
+            ui_components.show_err_msg(format!("Failed to load revisions: {err}"));
+        }
+    }
+    Ok(HandleInputReturnType::Handled)
+}
+
 fn show_fuzzy_find<D: DataProvider>(ui_components: &mut UIComponents, app: &mut App<D>) {
     let entries: HashMap<u32, String> = app
         .get_active_entries()

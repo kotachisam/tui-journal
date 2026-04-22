@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
 
-use crate::Entry;
+use crate::{Entry, EntryRevision};
 
 /// Helper class to retrieve entries' data from database since FromRow can't handle arrays
 #[derive(FromRow)]
@@ -39,6 +39,36 @@ impl From<EntryIntermediate> for Entry {
             deleted_at: value.deleted_at,
             updated_at: value.updated_at,
             source_last_edited_at: value.source_last_edited_at,
+        }
+    }
+}
+
+#[derive(FromRow)]
+pub(crate) struct RevisionRow {
+    pub id: u32,
+    pub entry_id: u32,
+    pub title: String,
+    pub date: DateTime<Utc>,
+    pub content: String,
+    pub priority: Option<u32>,
+    pub tags: Option<String>,
+    pub saved_at: DateTime<Utc>,
+}
+
+impl From<RevisionRow> for EntryRevision {
+    fn from(value: RevisionRow) -> Self {
+        EntryRevision {
+            id: value.id,
+            entry_id: value.entry_id,
+            title: value.title,
+            date: value.date,
+            content: value.content,
+            priority: value.priority,
+            tags: value
+                .tags
+                .map(|tags| tags.split_terminator(',').map(String::from).collect())
+                .unwrap_or_default(),
+            saved_at: value.saved_at,
         }
     }
 }
