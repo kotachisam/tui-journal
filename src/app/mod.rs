@@ -5,7 +5,7 @@ use self::{
 };
 use crate::settings::Settings;
 use anyhow::{Context, anyhow, bail};
-use backend::{DataProvider, EntriesDTO, Entry, EntryDraft, EntryRevision};
+use backend::{DataProvider, EntriesDTO, Entry, EntryDraft, EntryRevision, activity_actions};
 use chrono::{DateTime, Utc};
 use colored_tags::ColoredTagsManager;
 use filter::criterion::TagFilterOption;
@@ -162,6 +162,25 @@ where
         self.data_provide.get_revisions_for_entry(entry_id).await
     }
 
+    pub async fn get_activity_log(&self) -> anyhow::Result<Vec<backend::ActivityLogEntry>> {
+        self.data_provide.get_activity_log().await
+    }
+
+    async fn log_activity_best_effort(
+        &self,
+        action: &'static str,
+        entry_id: Option<u32>,
+        details: Option<&str>,
+    ) {
+        if let Err(err) = self
+            .data_provide
+            .log_activity(action, entry_id, details)
+            .await
+        {
+            log::warn!("Activity log write failed for '{action}': {err}");
+        }
+    }
+
     /// Overwrites the entry's user-editable fields with the revision's
     /// contents. Preserves id and sync metadata. The existing update_entry
     /// snapshot-before-write hook captures the pre-restore state as a new
@@ -187,6 +206,13 @@ where
         entry.updated_at = Some(Utc::now());
 
         self.data_provide.update_entry(entry.clone()).await?;
+
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_RESTORED,
+            Some(entry_id),
+            Some(&entry.title),
+        )
+        .await;
 
         if let Some(in_mem) = self.entries.iter_mut().find(|e| e.id == entry_id) {
             *in_mem = entry;
@@ -251,6 +277,13 @@ where
         let entry = self.data_provide.add_entry(draft).await?;
         let entry_id = entry.id;
 
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_CREATED,
+            Some(entry_id),
+            Some(&entry.title),
+        )
+        .await;
+
         self.history.register_add(history_target, &entry);
 
         self.entries.push(entry);
@@ -310,8 +343,16 @@ where
         entry.updated_at = Some(Utc::now());
 
         let clone = entry.clone();
+        let log_title = clone.title.clone();
 
         self.data_provide.update_entry(clone).await?;
+
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_UPDATED,
+            Some(entry_id),
+            Some(&log_title),
+        )
+        .await;
 
         self.sort_entries();
 
@@ -352,8 +393,16 @@ where
         entry.updated_at = Some(Utc::now());
 
         let clone = entry.clone();
+        let log_title = clone.title.clone();
 
         self.data_provide.update_entry(clone).await?;
+
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_UPDATED,
+            Some(entry_id),
+            Some(&log_title),
+        )
+        .await;
 
         self.update_filtered_out_entries();
 
@@ -379,6 +428,13 @@ where
             .position(|entry| entry.id == entry_id)
             .map(|index| self.entries.remove(index))
             .expect("entry must be in the entries list");
+
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_DELETED,
+            Some(entry_id),
+            Some(&removed_entry.title),
+        )
+        .await;
 
         self.history.register_remove(history_target, removed_entry);
 

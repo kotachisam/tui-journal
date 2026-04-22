@@ -329,4 +329,44 @@ impl DataProvider for SqliteDataProvide {
 
         Ok(rows.into_iter().map(EntryRevision::from).collect())
     }
+
+    async fn log_activity(
+        &self,
+        action_type: &str,
+        entry_id: Option<u32>,
+        details: Option<&str>,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r"INSERT INTO activity_log (timestamp, action_type, entry_id, details)
+            VALUES ($1, $2, $3, $4)",
+        )
+        .bind(chrono::Utc::now())
+        .bind(action_type)
+        .bind(entry_id)
+        .bind(details)
+        .execute(&self.pool)
+        .await
+        .map_err(|err| {
+            log::error!("Writing activity log row failed. Error info: {err}");
+            anyhow!(err)
+        })?;
+
+        Ok(())
+    }
+
+    async fn get_activity_log(&self) -> anyhow::Result<Vec<ActivityLogEntry>> {
+        let rows: Vec<sqlite_helper::ActivityLogRow> = sqlx::query_as(
+            r"SELECT id, timestamp, action_type, entry_id, details
+            FROM activity_log
+            ORDER BY timestamp DESC, id DESC",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|err| {
+            log::error!("Loading activity log failed. Error Info {err}");
+            anyhow!(err)
+        })?;
+
+        Ok(rows.into_iter().map(ActivityLogEntry::from).collect())
+    }
 }

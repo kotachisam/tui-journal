@@ -208,6 +208,12 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.errored
             );
         }
+        PendingCliCommand::ExportActivityLog => {
+            let entries = app.get_activity_log().await?;
+            let json = serde_json::to_string_pretty(&entries)
+                .context("Serializing activity log to JSON")?;
+            println!("{json}");
+        }
         PendingCliCommand::NotionPush { database_id } => {
             let mut notion_settings = app.settings.notion.clone();
             if let Some(id) = database_id {

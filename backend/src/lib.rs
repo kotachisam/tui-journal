@@ -14,6 +14,13 @@ pub use sqlite::SqliteDataProvide;
 
 pub const TRANSFER_DATA_VERSION: u16 = 100;
 
+pub mod activity_actions {
+    pub const ENTRY_CREATED: &str = "entry_created";
+    pub const ENTRY_UPDATED: &str = "entry_updated";
+    pub const ENTRY_DELETED: &str = "entry_deleted";
+    pub const ENTRY_RESTORED: &str = "entry_restored";
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ModifyEntryError {
     #[error("{0}")]

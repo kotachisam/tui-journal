@@ -33,6 +33,9 @@ pub enum CliCommand {
     /// Provides commands for syncing with external providers.
     #[command(subcommand)]
     Notion(NotionCommand),
+    /// Dump the activity log as JSON to stdout, newest first. Pipe through
+    /// jq for filtering.
+    Log,
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
@@ -96,6 +99,7 @@ pub enum PendingCliCommand {
     NotionPush {
         database_id: Option<String>,
     },
+    ExportActivityLog,
 }
 
 impl CliCommand {
@@ -129,6 +133,9 @@ impl CliCommand {
             CliCommand::Notion(NotionCommand::Push { database_id }) => Ok(
                 CliResult::PendingCommand(PendingCliCommand::NotionPush { database_id }),
             ),
+            CliCommand::Log => Ok(CliResult::PendingCommand(
+                PendingCliCommand::ExportActivityLog,
+            )),
         }
     }
 }
