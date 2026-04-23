@@ -45,42 +45,45 @@ pub async fn pull_from_notion<D: DataProvider>(
 
     send_progress(&progress, SyncStage::QueryingPages, 0, 0);
     let pages = client.fetch_all_pages(&data_source_id).await?;
-    let total = pages.len();
 
     let existing = provider.load_all_entries().await?;
     let by_external_id = index_by_external_id(&existing);
 
     let mut outcome = PullOutcome::default();
-    for (index, page) in pages.into_iter().enumerate() {
-        let position = index + 1;
-
+    let mut plan: Vec<PullPlanItem> = Vec::new();
+    for page in pages {
         match by_external_id.get(page.id.as_str()) {
-            None => {
-                send_progress(&progress, SyncStage::FetchingPageContent, position, total);
-                match insert_new(provider, settings, &client, &page).await {
-                    Ok(()) => outcome.inserted += 1,
-                    Err(err) => {
-                        log::warn!("pull insert failed for {}: {err}", page.id);
-                        outcome.errored += 1;
-                    }
+            None => plan.push(PullPlanItem::Insert(page)),
+            Some(existing_entry) => match decide_update(existing_entry, &page) {
+                UpdateDecision::Skip => outcome.unchanged += 1,
+                UpdateDecision::LocalWins => outcome.local_wins += 1,
+                UpdateDecision::ApplyRemote => {
+                    plan.push(PullPlanItem::ApplyRemote(page, existing_entry));
                 }
-            }
-            Some(existing_entry) => {
-                let decision = decide_update(existing_entry, &page);
-                match decision {
-                    UpdateDecision::Skip => outcome.unchanged += 1,
-                    UpdateDecision::LocalWins => outcome.local_wins += 1,
-                    UpdateDecision::ApplyRemote => {
-                        send_progress(&progress, SyncStage::FetchingPageContent, position, total);
-                        match apply_remote(provider, settings, &client, &page, existing_entry)
-                            .await
-                        {
-                            Ok(()) => outcome.updated += 1,
-                            Err(err) => {
-                                log::warn!("pull update failed for {}: {err}", page.id);
-                                outcome.errored += 1;
-                            }
-                        }
+            },
+        }
+    }
+
+    let total = plan.len();
+    for (index, item) in plan.into_iter().enumerate() {
+        let position = index + 1;
+        send_progress(&progress, SyncStage::FetchingPageContent, position, total);
+
+        match item {
+            PullPlanItem::Insert(page) => match insert_new(provider, settings, &client, &page).await
+            {
+                Ok(()) => outcome.inserted += 1,
+                Err(err) => {
+                    log::warn!("pull insert failed for {}: {err}", page.id);
+                    outcome.errored += 1;
+                }
+            },
+            PullPlanItem::ApplyRemote(page, existing_entry) => {
+                match apply_remote(provider, settings, &client, &page, existing_entry).await {
+                    Ok(()) => outcome.updated += 1,
+                    Err(err) => {
+                        log::warn!("pull update failed for {}: {err}", page.id);
+                        outcome.errored += 1;
                     }
                 }
             }
@@ -88,6 +91,11 @@ pub async fn pull_from_notion<D: DataProvider>(
     }
 
     Ok(outcome)
+}
+
+enum PullPlanItem<'a> {
+    Insert(PageResponse),
+    ApplyRemote(PageResponse, &'a Entry),
 }
 
 fn index_by_external_id(entries: &[Entry]) -> HashMap<&str, &Entry> {

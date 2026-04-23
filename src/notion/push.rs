@@ -69,19 +69,11 @@ pub async fn push_to_notion<D: DataProvider>(
         })
         .collect();
 
-    let total = candidates.len();
     let mut outcome = PushOutcome::default();
-
-    for (index, entry) in candidates.into_iter().enumerate() {
-        let position = index + 1;
-        send_progress(&progress, SyncStage::WritingToDatabase, position, total);
-
-        let action = decide_push(entry, &remote_by_id);
-        let result = match &action {
-            PushAction::Skip => {
-                outcome.skipped_unchanged += 1;
-                continue;
-            }
+    let mut plan: Vec<(&Entry, PushAction)> = Vec::new();
+    for entry in candidates {
+        match decide_push(entry, &remote_by_id) {
+            PushAction::Skip => outcome.skipped_unchanged += 1,
             PushAction::SkipConflict => {
                 log::warn!(
                     "Skipping push for entry {} ({}): remote changed since last sync, use pull to reconcile",
@@ -89,13 +81,25 @@ pub async fn push_to_notion<D: DataProvider>(
                     entry.external_id.as_deref().unwrap_or("<no id>")
                 );
                 outcome.skipped_conflict += 1;
-                continue;
             }
+            action => plan.push((entry, action)),
+        }
+    }
+
+    let total = plan.len();
+    for (index, (entry, action)) in plan.into_iter().enumerate() {
+        let position = index + 1;
+        send_progress(&progress, SyncStage::WritingToDatabase, position, total);
+
+        let result = match &action {
             PushAction::Archive(page_id) => archive(provider, &client, entry, page_id).await,
             PushAction::Create => create(provider, &client, entry, settings, &data_source_id).await,
             PushAction::Update(page_id) => {
                 update(provider, &client, entry, settings, page_id).await
             }
+            PushAction::Skip | PushAction::SkipConflict => unreachable!(
+                "skips are filtered out during planning"
+            ),
         };
 
         match (&action, result) {
