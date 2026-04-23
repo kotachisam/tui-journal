@@ -472,6 +472,47 @@ where
         Ok(())
     }
 
+    pub async fn export_to_directory(
+        &self,
+        dir: PathBuf,
+        tag: Option<String>,
+    ) -> anyhow::Result<usize> {
+        tokio::fs::create_dir_all(&dir).await.with_context(|| {
+            format!("Creating export directory {}", dir.display())
+        })?;
+
+        let matches: Vec<&Entry> = self
+            .entries
+            .iter()
+            .filter(|entry| entry.deleted_at.is_none())
+            .filter(|entry| match tag.as_deref() {
+                Some(t) => entry.tags.iter().any(|entry_tag| entry_tag == t),
+                None => true,
+            })
+            .collect();
+
+        let mut written = 0;
+        for entry in matches {
+            let file_name = format!("{}-{}.md", entry.id, slug_for_filename(&entry.title));
+            let mut path = dir.clone();
+            path.push(&file_name);
+
+            let mut body = String::new();
+            write_frontmatter(entry, &mut body);
+            body.push_str(&entry.content);
+            if !entry.content.ends_with('\n') {
+                body.push('\n');
+            }
+
+            tokio::fs::write(&path, body.as_bytes())
+                .await
+                .with_context(|| format!("Writing {}", path.display()))?;
+            written += 1;
+        }
+
+        Ok(written)
+    }
+
     async fn import_entries(&self, file_path: PathBuf) -> anyhow::Result<()> {
         if !file_path.exists() {
             bail!("Import file doesn't exist: path {}", file_path.display())
@@ -742,6 +783,55 @@ where
                 Ok(Some(id))
             }
         }
+    }
+}
+
+fn slug_for_filename(title: &str) -> String {
+    let mut out = String::with_capacity(title.len());
+    let mut last_dash = false;
+    for ch in title.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash {
+            out.push('-');
+            last_dash = true;
+        }
+    }
+    let trimmed = out.trim_matches('-').to_string();
+    if trimmed.is_empty() {
+        "untitled".to_string()
+    } else {
+        trimmed
+    }
+}
+
+fn write_frontmatter(entry: &Entry, buf: &mut String) {
+    buf.push_str("---\n");
+    buf.push_str(&format!("id: {}\n", entry.id));
+    buf.push_str(&format!("title: {}\n", yaml_scalar(&entry.title)));
+    buf.push_str(&format!("date: {}\n", entry.date.to_rfc3339()));
+    if let Some(p) = entry.priority {
+        buf.push_str(&format!("priority: {p}\n"));
+    }
+    if !entry.tags.is_empty() {
+        buf.push_str("tags:\n");
+        for tag in &entry.tags {
+            buf.push_str(&format!("  - {}\n", yaml_scalar(tag)));
+        }
+    }
+    buf.push_str("---\n\n");
+}
+
+fn yaml_scalar(s: &str) -> String {
+    let safe = !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_');
+    if safe {
+        s.to_string()
+    } else {
+        let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("\"{escaped}\"")
     }
 }
 

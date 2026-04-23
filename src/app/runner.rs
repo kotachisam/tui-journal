@@ -214,6 +214,12 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 .context("Serializing activity log to JSON")?;
             println!("{json}");
         }
+        PendingCliCommand::ExportToDirectory { dir, tag } => {
+            terminal.draw(|f| render_message_centered(f, "Exporting entries..."))?;
+            let written = app.export_to_directory(dir.clone(), tag).await?;
+            log::info!("Exported {written} entries to {}", dir.display());
+            println!("Exported {written} entries to {}", dir.display());
+        }
         PendingCliCommand::NotionPush { database_id } => {
             let mut notion_settings = app.settings.notion.clone();
             if let Some(id) = database_id {

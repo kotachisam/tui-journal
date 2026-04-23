@@ -36,6 +36,19 @@ pub enum CliCommand {
     /// Dump the activity log as JSON to stdout, newest first. Pipe through
     /// jq for filtering.
     Log,
+    /// Export entries as individual markdown files with YAML frontmatter,
+    /// one file per entry, filenames `{id}-{slug}.md`. Optionally filter
+    /// by a tag. Overwrites existing files with the same id — safe to
+    /// re-run.
+    #[clap(visible_alias = "ex")]
+    Export {
+        /// Directory to write files into. Created if missing.
+        #[arg(short = 'd', long = "dir", required = true, value_name = "DIR PATH")]
+        dir: PathBuf,
+        /// Only export entries that carry this tag.
+        #[arg(short = 't', long = "tag", value_name = "TAG")]
+        tag: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
@@ -100,6 +113,10 @@ pub enum PendingCliCommand {
         database_id: Option<String>,
     },
     ExportActivityLog,
+    ExportToDirectory {
+        dir: PathBuf,
+        tag: Option<String>,
+    },
 }
 
 impl CliCommand {
@@ -135,6 +152,9 @@ impl CliCommand {
             ),
             CliCommand::Log => Ok(CliResult::PendingCommand(
                 PendingCliCommand::ExportActivityLog,
+            )),
+            CliCommand::Export { dir, tag } => Ok(CliResult::PendingCommand(
+                PendingCliCommand::ExportToDirectory { dir, tag },
             )),
         }
     }
