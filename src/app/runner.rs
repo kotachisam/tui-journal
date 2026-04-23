@@ -92,8 +92,15 @@ where
     let mut ui_components = UIComponents::new(styles);
     let mut app = App::new(data_provider, settings);
     if let Some(cmd) = pending_cmd {
+        let exit_after = matches!(
+            &cmd,
+            PendingCliCommand::ExportToDirectory { .. } | PendingCliCommand::ExportActivityLog
+        );
         if let Err(err) = exec_pending_cmd(terminal, &app, cmd).await {
             ui_components.show_err_msg(err.to_string());
+        }
+        if exit_after {
+            return Ok(());
         }
     }
 
@@ -215,7 +222,6 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             println!("{json}");
         }
         PendingCliCommand::ExportToDirectory { dir, tag } => {
-            terminal.draw(|f| render_message_centered(f, "Exporting entries..."))?;
             let written = app.export_to_directory(dir.clone(), tag).await?;
             log::info!("Exported {written} entries to {}", dir.display());
             println!("Exported {written} entries to {}", dir.display());

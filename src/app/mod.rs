@@ -481,8 +481,8 @@ where
             format!("Creating export directory {}", dir.display())
         })?;
 
-        let matches: Vec<&Entry> = self
-            .entries
+        let entries = self.data_provide.load_all_entries().await?;
+        let matches: Vec<&Entry> = entries
             .iter()
             .filter(|entry| entry.deleted_at.is_none())
             .filter(|entry| match tag.as_deref() {
