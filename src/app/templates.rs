@@ -1,4 +1,7 @@
-use std::{fs, path::{Path, PathBuf}};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, anyhow};
 
@@ -39,7 +42,7 @@ pub fn list_templates() -> anyhow::Result<Vec<Template>> {
         .filter_map(|entry| load_template(&entry.path()).ok())
         .collect();
 
-    templates.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    templates.sort_by_key(|a| a.name.to_lowercase());
     Ok(templates)
 }
 

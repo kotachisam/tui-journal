@@ -97,9 +97,9 @@ pub async fn push_to_notion<D: DataProvider>(
             PushAction::Update(page_id) => {
                 update(provider, &client, entry, settings, page_id).await
             }
-            PushAction::Skip | PushAction::SkipConflict => unreachable!(
-                "skips are filtered out during planning"
-            ),
+            PushAction::Skip | PushAction::SkipConflict => {
+                unreachable!("skips are filtered out during planning")
+            }
         };
 
         match (&action, result) {
@@ -168,9 +168,7 @@ fn decide_push(entry: &Entry, remote: &HashMap<&str, &PageResponse>) -> PushActi
     }
 
     match (entry.updated_at, remote_page) {
-        (Some(updated), Some(page))
-            if updated > offset_to_chrono(page.last_edited_time) =>
-        {
+        (Some(updated), Some(page)) if updated > offset_to_chrono(page.last_edited_time) => {
             PushAction::Update(external_id.to_owned())
         }
         _ => PushAction::SkipConflict,
@@ -249,8 +247,7 @@ async fn archive<D: DataProvider>(
 }
 
 fn offset_to_chrono(odt: OffsetDateTime) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp(odt.unix_timestamp(), odt.nanosecond())
-        .unwrap_or_else(Utc::now)
+    DateTime::<Utc>::from_timestamp(odt.unix_timestamp(), odt.nanosecond()).unwrap_or_else(Utc::now)
 }
 
 fn send_progress(
@@ -350,7 +347,8 @@ mod tests {
             None,
         );
         let remote_page = remote_for("page-1", chrono_to_offset(synced));
-        let remote: HashMap<&str, &PageResponse> = std::iter::once(("page-1", &remote_page)).collect();
+        let remote: HashMap<&str, &PageResponse> =
+            std::iter::once(("page-1", &remote_page)).collect();
         assert_eq!(decide_push(&entry, &remote), PushAction::Skip);
     }
 
@@ -366,7 +364,8 @@ mod tests {
             None,
         );
         let remote_page = remote_for("page-1", chrono_to_offset(synced));
-        let remote: HashMap<&str, &PageResponse> = std::iter::once(("page-1", &remote_page)).collect();
+        let remote: HashMap<&str, &PageResponse> =
+            std::iter::once(("page-1", &remote_page)).collect();
         assert_eq!(
             decide_push(&entry, &remote),
             PushAction::Update("page-1".to_owned())
@@ -386,7 +385,8 @@ mod tests {
             None,
         );
         let remote_page = remote_for("page-1", chrono_to_offset(remote_edit));
-        let remote: HashMap<&str, &PageResponse> = std::iter::once(("page-1", &remote_page)).collect();
+        let remote: HashMap<&str, &PageResponse> =
+            std::iter::once(("page-1", &remote_page)).collect();
         assert_eq!(
             decide_push(&entry, &remote),
             PushAction::Update("page-1".to_owned())
@@ -406,7 +406,8 @@ mod tests {
             None,
         );
         let remote_page = remote_for("page-1", chrono_to_offset(remote_edit));
-        let remote: HashMap<&str, &PageResponse> = std::iter::once(("page-1", &remote_page)).collect();
+        let remote: HashMap<&str, &PageResponse> =
+            std::iter::once(("page-1", &remote_page)).collect();
         assert_eq!(decide_push(&entry, &remote), PushAction::SkipConflict);
     }
 
@@ -420,7 +421,8 @@ mod tests {
             Some(Utc::now()),
         );
         let remote_page = remote_for("page-1", chrono_to_offset(Utc::now()));
-        let remote: HashMap<&str, &PageResponse> = std::iter::once(("page-1", &remote_page)).collect();
+        let remote: HashMap<&str, &PageResponse> =
+            std::iter::once(("page-1", &remote_page)).collect();
         assert_eq!(
             decide_push(&entry, &remote),
             PushAction::Archive("page-1".to_owned())

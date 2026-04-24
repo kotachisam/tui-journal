@@ -35,10 +35,7 @@ impl NotionClient {
             .context("Database has no data sources; ensure the integration has access")
     }
 
-    pub async fn fetch_all_pages(
-        &self,
-        data_source_id: &str,
-    ) -> anyhow::Result<Vec<PageResponse>> {
+    pub async fn fetch_all_pages(&self, data_source_id: &str) -> anyhow::Result<Vec<PageResponse>> {
         self.inner
             .query_data_source()
             .data_source_id(data_source_id)

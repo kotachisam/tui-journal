@@ -252,7 +252,9 @@ pub fn continue_create_default_templates(
             Ok(dir) => {
                 let path = dir.display().to_string();
                 let clipboard_note = match copy_path_to_clipboard(&path) {
-                    Ok(()) => "Path copied to clipboard — paste in Finder (Cmd+Shift+G) to open the folder.",
+                    Ok(()) => {
+                        "Path copied to clipboard — paste in Finder (Cmd+Shift+G) to open the folder."
+                    }
                     Err(_) => "Clipboard copy failed; path shown above.",
                 };
                 let msg = format!(

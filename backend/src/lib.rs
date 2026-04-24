@@ -54,10 +54,7 @@ pub trait DataProvider {
 
     /// Returns prior snapshots of the given entry, newest first. Backends
     /// that don't support revisioning return an empty vec.
-    async fn get_revisions_for_entry(
-        &self,
-        _entry_id: u32,
-    ) -> anyhow::Result<Vec<EntryRevision>> {
+    async fn get_revisions_for_entry(&self, _entry_id: u32) -> anyhow::Result<Vec<EntryRevision>> {
         Ok(Vec::new())
     }
 

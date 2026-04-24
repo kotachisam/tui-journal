@@ -136,12 +136,8 @@ where
                         }
 
                         if app.should_push_on_exit {
-                            match run_notion_push(
-                                terminal,
-                                &app.data_provide,
-                                &app.settings.notion,
-                            )
-                            .await
+                            match run_notion_push(terminal, &app.data_provide, &app.settings.notion)
+                                .await
                             {
                                 Ok(outcome) => log::info!(
                                     "Exit-time Notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
@@ -204,8 +200,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             if let Some(id) = database_id {
                 notion_settings.database_id = Some(id);
             }
-            let outcome =
-                run_notion_pull(terminal, &app.data_provide, &notion_settings).await?;
+            let outcome = run_notion_pull(terminal, &app.data_provide, &notion_settings).await?;
             log::info!(
                 "Notion pull finished: inserted={}, updated={}, unchanged={}, local_wins={}, errored={}",
                 outcome.inserted,
@@ -231,8 +226,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             if let Some(id) = database_id {
                 notion_settings.database_id = Some(id);
             }
-            let outcome =
-                run_notion_push(terminal, &app.data_provide, &notion_settings).await?;
+            let outcome = run_notion_push(terminal, &app.data_provide, &notion_settings).await?;
             log::info!(
                 "Notion push finished: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
                 outcome.created,
@@ -356,7 +350,11 @@ fn render_sync_progress(frame: &mut Frame, progress: &SyncProgress) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .margin(1)
-        .constraints([Constraint::Length(1), Constraint::Length(1), Constraint::Length(1)])
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
         .split(inner);
 
     let stage_line = Paragraph::new(progress.stage.label()).wrap(Wrap { trim: false });

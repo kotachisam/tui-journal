@@ -6,8 +6,8 @@ use notionrs_types::object::date::DateOrDateTime;
 use notionrs_types::object::page::date::{PageDateProperty, PageDatePropertyParameter};
 use notionrs_types::object::page::multi_select::PageMultiSelectProperty;
 use notionrs_types::object::page::title::PageTitleProperty;
-use notionrs_types::object::rich_text::{RichText, RichTextAnnotations};
 use notionrs_types::object::rich_text::text::Text;
+use notionrs_types::object::rich_text::{RichText, RichTextAnnotations};
 use notionrs_types::object::select::Select;
 use notionrs_types::prelude::{PageProperty, PageResponse};
 
@@ -134,9 +134,7 @@ fn sanitize_markdown(raw: &str) -> String {
 
 fn extract_title(page: &PageResponse, configured_name: Option<&str>) -> Option<String> {
     page.properties.iter().find_map(|(name, prop)| match prop {
-        PageProperty::Title(title_prop)
-            if configured_name.is_none_or(|wanted| wanted == name) =>
-        {
+        PageProperty::Title(title_prop) if configured_name.is_none_or(|wanted| wanted == name) => {
             Some(join_plain_text(&title_prop.title))
         }
         _ => None,
@@ -145,16 +143,14 @@ fn extract_title(page: &PageResponse, configured_name: Option<&str>) -> Option<S
 
 fn extract_date(page: &PageResponse, configured_name: Option<&str>) -> Option<DateTime<Utc>> {
     let wanted = configured_name.unwrap_or(DEFAULT_DATE_PROPERTY);
-    page.properties
-        .iter()
-        .find_map(|(name, prop)| match prop {
-            PageProperty::Date(date_prop) if name == wanted => date_prop
-                .date
-                .as_ref()
-                .and_then(|inner| inner.start.as_ref())
-                .map(date_or_datetime_to_chrono),
-            _ => None,
-        })
+    page.properties.iter().find_map(|(name, prop)| match prop {
+        PageProperty::Date(date_prop) if name == wanted => date_prop
+            .date
+            .as_ref()
+            .and_then(|inner| inner.start.as_ref())
+            .map(date_or_datetime_to_chrono),
+        _ => None,
+    })
 }
 
 fn extract_tags(page: &PageResponse, configured_name: Option<&str>) -> Vec<String> {
@@ -391,7 +387,8 @@ mod tests {
 
     #[test]
     fn sanitize_markdown_strips_empty_block_lines() {
-        let raw = "paragraph one\n<empty-block/>\nparagraph two\n  <empty-block/>  \nparagraph three";
+        let raw =
+            "paragraph one\n<empty-block/>\nparagraph two\n  <empty-block/>  \nparagraph three";
 
         let cleaned = sanitize_markdown(raw);
 

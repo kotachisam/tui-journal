@@ -235,10 +235,9 @@ impl UICommand {
             ),
             UICommand::Undo => CommandInfo::new("Undo", "Undo the latest change on journals"),
             UICommand::Redo => CommandInfo::new("Redo", "Redo the latest change on journals"),
-            UICommand::QuitAndSync => CommandInfo::new(
-                "Quit and sync",
-                "Push unsynced changes to Notion on exit",
-            ),
+            UICommand::QuitAndSync => {
+                CommandInfo::new("Quit and sync", "Push unsynced changes to Notion on exit")
+            }
             UICommand::ShowTemplatePicker => CommandInfo::new(
                 "Pick template for new journal",
                 "Open a popup listing journal templates from the templates dir and pre-fill a new entry from the selected one",
@@ -318,9 +317,7 @@ impl UICommand {
             UICommand::CreateDefaultTemplates => {
                 unreachable!("CreateDefaultTemplates is pending-only, never dispatched as a keymap")
             }
-            UICommand::ShowRevisionHistory => {
-                exec_show_revision_history(ui_components, app).await
-            }
+            UICommand::ShowRevisionHistory => exec_show_revision_history(ui_components, app).await,
         }
     }
 

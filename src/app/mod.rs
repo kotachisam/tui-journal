@@ -477,9 +477,9 @@ where
         dir: PathBuf,
         tag: Option<String>,
     ) -> anyhow::Result<usize> {
-        tokio::fs::create_dir_all(&dir).await.with_context(|| {
-            format!("Creating export directory {}", dir.display())
-        })?;
+        tokio::fs::create_dir_all(&dir)
+            .await
+            .with_context(|| format!("Creating export directory {}", dir.display()))?;
 
         let entries = self.data_provide.load_all_entries().await?;
         let matches: Vec<&Entry> = entries

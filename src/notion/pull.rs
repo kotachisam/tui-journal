@@ -70,14 +70,15 @@ pub async fn pull_from_notion<D: DataProvider>(
         send_progress(&progress, SyncStage::FetchingPageContent, position, total);
 
         match item {
-            PullPlanItem::Insert(page) => match insert_new(provider, settings, &client, &page).await
-            {
-                Ok(()) => outcome.inserted += 1,
-                Err(err) => {
-                    log::warn!("pull insert failed for {}: {err}", page.id);
-                    outcome.errored += 1;
+            PullPlanItem::Insert(page) => {
+                match insert_new(provider, settings, &client, &page).await {
+                    Ok(()) => outcome.inserted += 1,
+                    Err(err) => {
+                        log::warn!("pull insert failed for {}: {err}", page.id);
+                        outcome.errored += 1;
+                    }
                 }
-            },
+            }
             PullPlanItem::ApplyRemote(page, existing_entry) => {
                 match apply_remote(provider, settings, &client, &page, existing_entry).await {
                     Ok(()) => outcome.updated += 1,
@@ -190,8 +191,7 @@ async fn apply_remote<D: DataProvider>(
 }
 
 fn offset_to_chrono(odt: OffsetDateTime) -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp(odt.unix_timestamp(), odt.nanosecond())
-        .unwrap_or_else(Utc::now)
+    DateTime::<Utc>::from_timestamp(odt.unix_timestamp(), odt.nanosecond()).unwrap_or_else(Utc::now)
 }
 
 fn send_progress(

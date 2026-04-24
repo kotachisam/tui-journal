@@ -138,18 +138,21 @@ impl CliCommand {
                 Themes::DumpDefaults => exec_print_themes_defaults(),
                 Themes::WriteDefaults => exec_write_themes_defaults(custom_config_dir),
             },
-            CliCommand::Notion(NotionCommand::Bootstrap {
-                force,
-                database_id,
-            }) => Ok(CliResult::PendingCommand(
-                PendingCliCommand::NotionBootstrap { force, database_id },
-            )),
-            CliCommand::Notion(NotionCommand::Pull { database_id }) => Ok(
-                CliResult::PendingCommand(PendingCliCommand::NotionPull { database_id }),
-            ),
-            CliCommand::Notion(NotionCommand::Push { database_id }) => Ok(
-                CliResult::PendingCommand(PendingCliCommand::NotionPush { database_id }),
-            ),
+            CliCommand::Notion(NotionCommand::Bootstrap { force, database_id }) => {
+                Ok(CliResult::PendingCommand(
+                    PendingCliCommand::NotionBootstrap { force, database_id },
+                ))
+            }
+            CliCommand::Notion(NotionCommand::Pull { database_id }) => {
+                Ok(CliResult::PendingCommand(PendingCliCommand::NotionPull {
+                    database_id,
+                }))
+            }
+            CliCommand::Notion(NotionCommand::Push { database_id }) => {
+                Ok(CliResult::PendingCommand(PendingCliCommand::NotionPush {
+                    database_id,
+                }))
+            }
             CliCommand::Log => Ok(CliResult::PendingCommand(
                 PendingCliCommand::ExportActivityLog,
             )),

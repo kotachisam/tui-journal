@@ -231,7 +231,8 @@ impl FuzzFindPopup<'_> {
                 })
                 .collect();
 
-            self.filtered_entries.sort_by(|a, b| b.score.cmp(&a.score));
+            self.filtered_entries
+                .sort_by_key(|b| std::cmp::Reverse(b.score));
         }
 
         if self.filtered_entries.is_empty() {

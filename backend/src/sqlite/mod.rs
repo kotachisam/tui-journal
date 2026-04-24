@@ -309,10 +309,7 @@ impl DataProvider for SqliteDataProvide {
         Ok(())
     }
 
-    async fn get_revisions_for_entry(
-        &self,
-        entry_id: u32,
-    ) -> anyhow::Result<Vec<EntryRevision>> {
+    async fn get_revisions_for_entry(&self, entry_id: u32) -> anyhow::Result<Vec<EntryRevision>> {
         let rows: Vec<sqlite_helper::RevisionRow> = sqlx::query_as(
             r"SELECT id, entry_id, title, date, content, priority, tags, saved_at
             FROM entry_revisions
