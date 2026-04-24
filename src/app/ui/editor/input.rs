@@ -1,0 +1,281 @@
+use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use tui_textarea::{CursorMove, Scrolling};
+
+use backend::DataProvider;
+
+use crate::app::{
+    App, keymap::Input, runner::HandleInputReturnType, ui::commands::ClipboardOperation,
+};
+
+use super::{Editor, EditorMode};
+
+impl From<&Input> for KeyEvent {
+    fn from(value: &Input) -> Self {
+        KeyEvent {
+            code: value.key_code,
+            modifiers: value.modifiers,
+            kind: KeyEventKind::Press,
+            state: KeyEventState::NONE,
+        }
+    }
+}
+
+impl Editor<'_> {
+    pub fn handle_input_prioritized<D: DataProvider>(
+        &mut self,
+        input: &Input,
+        app: &App<D>,
+    ) -> anyhow::Result<HandleInputReturnType> {
+        if self.is_insert_mode() {
+            // We must handle clipboard operation separately if sync with system clipboard is
+            // activated
+            if app.settings.sync_os_clipboard {
+                let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
+                // Keymaps are taken from `text_area` source code
+                let handled = match input.key_code {
+                    KeyCode::Char('x') if has_ctrl => {
+                        self.exec_os_clipboard(ClipboardOperation::Cut)?;
+                        true
+                    }
+                    KeyCode::Char('c') if has_ctrl => {
+                        self.exec_os_clipboard(ClipboardOperation::Copy)?;
+                        true
+                    }
+                    KeyCode::Char('y') if has_ctrl => {
+                        self.exec_os_clipboard(ClipboardOperation::Paste)?;
+                        true
+                    }
+                    _ => false,
+                };
+
+                if handled {
+                    return Ok(HandleInputReturnType::Handled);
+                }
+            }
+
+            // give the input to the editor
+            let key_event = KeyEvent::from(input);
+            if self.text_area.input(key_event) {
+                self.is_dirty = true;
+                self.refresh_has_unsaved(app);
+            }
+
+            return Ok(HandleInputReturnType::Handled);
+        }
+
+        Ok(HandleInputReturnType::NotFound)
+    }
+
+    pub fn handle_input<D: DataProvider>(
+        &mut self,
+        input: &Input,
+        app: &App<D>,
+    ) -> anyhow::Result<HandleInputReturnType> {
+        if self.show_preview {
+            match input.key_code {
+                KeyCode::Char('j') | KeyCode::Down => {
+                    self.preview_scroll = self.preview_scroll.saturating_add(1);
+                    return Ok(HandleInputReturnType::Handled);
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    self.preview_scroll = self.preview_scroll.saturating_sub(1);
+                    return Ok(HandleInputReturnType::Handled);
+                }
+                KeyCode::Char('p') | KeyCode::Esc => {
+                    self.toggle_preview();
+                    return Ok(HandleInputReturnType::Handled);
+                }
+                _ => {
+                    self.show_preview = false;
+                    self.preview_scroll = 0;
+                }
+            }
+        }
+        debug_assert!(!self.is_insert_mode());
+
+        if app.get_current_entry().is_none() {
+            return Ok(HandleInputReturnType::Handled);
+        }
+
+        let sync_os_clipboard = app.settings.sync_os_clipboard;
+
+        if is_default_navigation(input) {
+            let key_event = KeyEvent::from(input);
+            self.text_area.input(key_event);
+        } else if !self.is_visual_mode()
+            || !self.handle_input_visual_only(input, sync_os_clipboard)?
+        {
+            self.handle_vim_motions(input, sync_os_clipboard)?;
+        }
+
+        // Check if the input led the editor to leave the visual mode and make the corresponding UI changes
+        if !self.text_area.is_selecting() && self.is_visual_mode() {
+            self.set_editor_mode(EditorMode::Normal);
+        }
+
+        self.is_dirty = true;
+        self.refresh_has_unsaved(app);
+
+        Ok(HandleInputReturnType::Handled)
+    }
+
+    /// Handles input specialized for visual mode only like cut and copy
+    fn handle_input_visual_only(
+        &mut self,
+        input: &Input,
+        sync_os_clipboard: bool,
+    ) -> anyhow::Result<bool> {
+        if !input.modifiers.is_empty() {
+            return Ok(false);
+        }
+
+        match input.key_code {
+            KeyCode::Char('d') => {
+                if sync_os_clipboard {
+                    self.exec_os_clipboard(ClipboardOperation::Cut)?;
+                } else {
+                    self.text_area.cut();
+                }
+                Ok(true)
+            }
+            KeyCode::Char('y') => {
+                if sync_os_clipboard {
+                    self.exec_os_clipboard(ClipboardOperation::Copy)?;
+                } else {
+                    self.text_area.copy();
+                }
+                self.set_editor_mode(EditorMode::Normal);
+                Ok(true)
+            }
+            KeyCode::Char('c') => {
+                if sync_os_clipboard {
+                    self.exec_os_clipboard(ClipboardOperation::Copy)?;
+                } else {
+                    self.text_area.cut();
+                }
+                self.set_editor_mode(EditorMode::Insert);
+                Ok(true)
+            }
+            _ => Ok(false),
+        }
+    }
+
+    fn handle_vim_motions(&mut self, input: &Input, sync_os_clipboard: bool) -> anyhow::Result<()> {
+        let has_control = input.modifiers.contains(KeyModifiers::CONTROL);
+
+        match (input.key_code, has_control) {
+            (KeyCode::Char('h'), false) => {
+                self.text_area.move_cursor(CursorMove::Back);
+            }
+            (KeyCode::Char('j'), false) => {
+                self.text_area.move_cursor(CursorMove::Down);
+            }
+            (KeyCode::Char('k'), false) => {
+                self.text_area.move_cursor(CursorMove::Up);
+            }
+            (KeyCode::Char('l'), false) => {
+                self.text_area.move_cursor(CursorMove::Forward);
+            }
+            (KeyCode::Char('w'), false) | (KeyCode::Char('e'), false) => {
+                self.text_area.move_cursor(CursorMove::WordForward);
+            }
+            (KeyCode::Char('b'), false) => {
+                self.text_area.move_cursor(CursorMove::WordBack);
+            }
+            (KeyCode::Char('^'), false) => {
+                self.text_area.move_cursor(CursorMove::Head);
+            }
+            (KeyCode::Char('$'), false) => {
+                self.text_area.move_cursor(CursorMove::End);
+            }
+            (KeyCode::Char('D'), false) => {
+                self.text_area.delete_line_by_end();
+                self.exec_os_clipboard(ClipboardOperation::Copy)?;
+            }
+            (KeyCode::Char('C'), false) => {
+                self.text_area.delete_line_by_end();
+                self.exec_os_clipboard(ClipboardOperation::Copy)?;
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('p'), false) => {
+                if sync_os_clipboard {
+                    self.exec_os_clipboard(ClipboardOperation::Paste)?;
+                } else {
+                    self.text_area.paste();
+                }
+            }
+            (KeyCode::Char('u'), false) => {
+                self.text_area.undo();
+            }
+            (KeyCode::Char('r'), true) => {
+                self.text_area.redo();
+            }
+            (KeyCode::Char('x'), false) => {
+                self.text_area.delete_next_char();
+                self.exec_os_clipboard(ClipboardOperation::Copy)?;
+            }
+            (KeyCode::Char('i'), false) => self.mode = EditorMode::Insert,
+            (KeyCode::Char('a'), false) => {
+                self.text_area.move_cursor(CursorMove::Forward);
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('A'), false) => {
+                self.text_area.move_cursor(CursorMove::End);
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('o'), false) => {
+                self.text_area.move_cursor(CursorMove::End);
+                self.text_area.insert_newline();
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('O'), false) => {
+                self.text_area.move_cursor(CursorMove::Head);
+                self.text_area.insert_newline();
+                self.text_area.move_cursor(CursorMove::Up);
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('I'), false) => {
+                self.text_area.move_cursor(CursorMove::Head);
+                self.mode = EditorMode::Insert;
+            }
+            (KeyCode::Char('d'), true) => {
+                self.text_area.scroll(Scrolling::HalfPageDown);
+            }
+            (KeyCode::Char('u'), true) => {
+                self.text_area.scroll(Scrolling::HalfPageUp);
+            }
+            (KeyCode::Char('f'), true) => {
+                self.text_area.scroll(Scrolling::PageDown);
+            }
+            (KeyCode::Char('b'), true) => {
+                self.text_area.scroll(Scrolling::PageUp);
+            }
+            _ => {}
+        }
+
+        Ok(())
+    }
+}
+
+fn is_default_navigation(input: &Input) -> bool {
+    let has_control = input.modifiers.contains(KeyModifiers::CONTROL);
+    let has_alt = input.modifiers.contains(KeyModifiers::ALT);
+    match input.key_code {
+        KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::PageUp
+        | KeyCode::PageDown => true,
+        KeyCode::Char('p') if has_control || has_alt => true,
+        KeyCode::Char('n') if has_control || has_alt => true,
+        KeyCode::Char('f') if !has_control && has_alt => true,
+        KeyCode::Char('b') if !has_control && has_alt => true,
+        KeyCode::Char('e') if has_control || has_alt => true,
+        KeyCode::Char('a') if has_control || has_alt => true,
+        KeyCode::Char('v') if has_control || has_alt => true,
+        _ => false,
+    }
+}
