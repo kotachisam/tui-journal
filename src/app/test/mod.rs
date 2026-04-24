@@ -1,10 +1,18 @@
-use chrono::TimeZone;
+pub(super) use std::path::PathBuf;
+
+pub(super) use anyhow::{anyhow, bail};
+pub(super) use backend::{DataProvider, EntriesDTO, Entry, EntryDraft};
+pub(super) use chrono::{DateTime, TimeZone, Utc};
+
+use crate::settings::Settings;
 
 mod filter;
 
 use self::mock::MockDataProvider;
 
-use super::*;
+pub(super) use super::App;
+pub(super) use super::filter::{Filter, FilterCriterion, criterion::TagFilterOption};
+pub(super) use super::sorter::{SortCriteria, SortOrder, Sorter};
 
 mod mock;
 mod undo_redo;

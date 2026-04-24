@@ -1,9 +1,11 @@
-use std::{fs, io::BufWriter};
+use std::{fs, fs::File, io::BufWriter, path::PathBuf};
 
+use anyhow::{Context, anyhow};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
 
-use super::*;
+use super::sorter::Sorter;
+use crate::settings::Settings;
 
 const STATE_FILE_NAME: &str = "state.json";
 
@@ -148,6 +150,8 @@ impl AppState {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
+
+    use crate::app::sorter::{SortCriteria, SortOrder};
 
     use super::*;
 
