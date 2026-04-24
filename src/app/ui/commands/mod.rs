@@ -187,9 +187,10 @@ impl UICommand {
             UICommand::CycleTagFilter => {
                 CommandInfo::new("Cycle Tag Filter", "Cycle through the tag filters")
             }
-            UICommand::ShowFuzzyFind => {
-                CommandInfo::new("Fuzzy find", "Open fuzzy find popup for journals")
-            }
+            UICommand::ShowFuzzyFind => CommandInfo::new(
+                "Search",
+                "Fuzzy search across entries (title, content, tags)",
+            ),
             UICommand::ToggleEditorVisualMode => CommandInfo::new(
                 "Toggle Editor Visual Mode",
                 "Toggle Editor Visual(Select) Mode when editor is in focus",
@@ -268,7 +269,7 @@ impl UICommand {
             UICommand::CreateEntry => exec_create_entry(ui_components, app),
             UICommand::EditCurrentEntry => exec_edit_current_entry(ui_components, app),
             UICommand::DeleteCurrentEntry => exec_delete_current_entry(ui_components, app),
-            UICommand::StartEditEntryContent => exec_start_edit_content(ui_components),
+            UICommand::StartEditEntryContent => exec_start_edit_content(ui_components, app),
             UICommand::BackEditorNormalMode => exec_back_editor_to_normal_mode(ui_components),
             UICommand::SaveEntryContent => exec_save_entry_content(ui_components, app).await,
             UICommand::DiscardChangesEntryContent => exec_discard_content(ui_components),

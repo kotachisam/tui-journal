@@ -155,7 +155,12 @@ impl UIComponents<'_> {
                     );
                 }
                 ControlType::EntryContentTxt => {
-                    self.editor.render_widget(f, chunks[0], &self.styles);
+                    self.editor.render_widget(
+                        f,
+                        chunks[0],
+                        &self.styles,
+                        app.last_search_query.as_deref(),
+                    );
                 }
             }
         } else {
@@ -170,8 +175,12 @@ impl UIComponents<'_> {
                 &self.entries_list_keymaps,
                 &self.styles,
             );
-            self.editor
-                .render_widget(f, entries_chunks[1], &self.styles);
+            self.editor.render_widget(
+                f,
+                entries_chunks[1],
+                &self.styles,
+                app.last_search_query.as_deref(),
+            );
         }
 
         self.render_popup(f);
@@ -330,6 +339,13 @@ impl UIComponents<'_> {
                     },
                     Popup::FuzzFind(fuzz_find) => match fuzz_find.handle_input(input) {
                         fuzz_find::FuzzFindReturn::Close => {
+                            self.popup_stack.pop().expect("popup stack isn't empty");
+                        }
+                        fuzz_find::FuzzFindReturn::Commit => {
+                            app.last_search_query = fuzz_find
+                                .query()
+                                .map(|q| q.to_owned())
+                                .filter(|q| !q.is_empty());
                             self.popup_stack.pop().expect("popup stack isn't empty");
                         }
                         fuzz_find::FuzzFindReturn::SelectEntry(entry_id) => {

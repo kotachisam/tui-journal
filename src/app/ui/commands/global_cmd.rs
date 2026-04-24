@@ -114,8 +114,12 @@ pub fn exec_cycle_backward(ui_components: &mut UIComponents) -> CmdResult {
     Ok(HandleInputReturnType::Handled)
 }
 
-pub fn exec_start_edit_content(ui_components: &mut UIComponents) -> CmdResult {
+pub fn exec_start_edit_content<D: DataProvider>(
+    ui_components: &mut UIComponents,
+    app: &mut App<D>,
+) -> CmdResult {
     ui_components.start_edit_current_entry()?;
+    app.last_search_query = None;
 
     Ok(HandleInputReturnType::Handled)
 }

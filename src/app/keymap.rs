@@ -229,11 +229,7 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::ResetFilter,
         ),
         Keymap::new(
-            Input::new(KeyCode::Char('a'), KeyModifiers::NONE),
-            UICommand::ShowFuzzyFind,
-        ),
-        Keymap::new(
-            Input::new(KeyCode::Char('F'), KeyModifiers::SHIFT),
+            Input::new(KeyCode::Char('/'), KeyModifiers::NONE),
             UICommand::ShowFuzzyFind,
         ),
         Keymap::new(

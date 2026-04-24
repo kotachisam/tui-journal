@@ -192,6 +192,11 @@ modifiers = ""
 fg = "Black"
 bg = "LightBlue"
 modifiers = ""
+
+[general.search_highlight]
+fg = "Black"
+bg = "Yellow"
+modifiers = "BOLD"
         "##;
 
         let style = Styles::deserialize(text).unwrap();

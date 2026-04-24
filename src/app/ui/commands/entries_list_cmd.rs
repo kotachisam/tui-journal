@@ -459,6 +459,7 @@ pub async fn exec_show_revision_history<D: DataProvider>(
 }
 
 fn show_fuzzy_find<D: DataProvider>(ui_components: &mut UIComponents, app: &mut App<D>) {
+    app.last_search_query = None;
     let entries: HashMap<u32, String> = app
         .get_active_entries()
         .map(|entry| (entry.id, build_searchable_text(entry)))
@@ -468,30 +469,22 @@ fn show_fuzzy_find<D: DataProvider>(ui_components: &mut UIComponents, app: &mut 
         .push(Popup::FuzzFind(Box::new(FuzzFindPopup::new(entries))));
 }
 
-/// Combines an entry's title and a single-line content preview into one
-/// searchable string. The fuzzy matcher scores across the entire string, so
-/// queries hit both title and content. Newlines and tabs are collapsed to
-/// spaces so the display stays on a single line.
 fn build_searchable_text(entry: &Entry) -> String {
-    const PREVIEW_LEN: usize = 120;
     const SEPARATOR: &str = " — ";
 
-    let content_preview: String = entry
+    let content_flat: String = entry
         .content
         .chars()
         .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .take(PREVIEW_LEN)
         .collect();
 
-    let title_trim = entry.title.trim();
-    let content_trim = content_preview.trim();
+    let tags_joined = entry.tags.join(" ");
 
-    match (title_trim.is_empty(), content_trim.is_empty()) {
-        (true, true) => String::new(),
-        (true, false) => content_trim.to_owned(),
-        (false, true) => title_trim.to_owned(),
-        (false, false) => format!("{title_trim}{SEPARATOR}{content_trim}"),
-    }
+    [entry.title.trim(), content_flat.trim(), tags_joined.trim()]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(SEPARATOR)
 }
 
 pub async fn continue_fuzzy_find<D: DataProvider>(
@@ -587,4 +580,86 @@ pub fn page_down_entries<D: DataProvider>(ui_components: &mut UIComponents, app:
     let step = app.settings.get_scroll_per_page();
 
     select_next_entry(step, ui_components, app);
+}
+
+#[cfg(test)]
+mod searchable_text_tests {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn entry(title: &str, content: &str, tags: &[&str]) -> Entry {
+        Entry::new(
+            1,
+            Utc.with_ymd_and_hms(2024, 1, 2, 3, 4, 5).unwrap(),
+            title.to_owned(),
+            content.to_owned(),
+            tags.iter().map(|t| (*t).to_owned()).collect(),
+            None,
+        )
+    }
+
+    #[test]
+    fn all_three_fields_present() {
+        let e = entry("My title", "Some body text", &["rust", "tui"]);
+        assert_eq!(
+            build_searchable_text(&e),
+            "My title — Some body text — rust tui"
+        );
+    }
+
+    #[test]
+    fn empty_title_drops_leading_separator() {
+        let e = entry("", "body", &["tag"]);
+        assert_eq!(build_searchable_text(&e), "body — tag");
+    }
+
+    #[test]
+    fn empty_content_drops_middle_separator() {
+        let e = entry("title", "", &["tag"]);
+        assert_eq!(build_searchable_text(&e), "title — tag");
+    }
+
+    #[test]
+    fn empty_tags_drops_trailing_separator() {
+        let e = entry("title", "body", &[]);
+        assert_eq!(build_searchable_text(&e), "title — body");
+    }
+
+    #[test]
+    fn only_title_no_separator() {
+        let e = entry("only", "", &[]);
+        assert_eq!(build_searchable_text(&e), "only");
+    }
+
+    #[test]
+    fn only_content_no_separator() {
+        let e = entry("", "only body", &[]);
+        assert_eq!(build_searchable_text(&e), "only body");
+    }
+
+    #[test]
+    fn only_tags_no_separator() {
+        let e = entry("", "", &["one", "two"]);
+        assert_eq!(build_searchable_text(&e), "one two");
+    }
+
+    #[test]
+    fn all_empty_returns_empty_string() {
+        let e = entry("", "", &[]);
+        assert_eq!(build_searchable_text(&e), "");
+    }
+
+    #[test]
+    fn newlines_and_tabs_in_content_collapse_to_spaces() {
+        let e = entry("t", "line one\nline two\tthree", &[]);
+        assert_eq!(build_searchable_text(&e), "t — line one line two three");
+    }
+
+    #[test]
+    fn full_content_is_searchable_past_legacy_120_char_limit() {
+        let long = "a".repeat(200) + " needle";
+        let e = entry("t", &long, &[]);
+        let out = build_searchable_text(&e);
+        assert!(out.contains("needle"));
+    }
 }

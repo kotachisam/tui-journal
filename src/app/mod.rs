@@ -54,6 +54,7 @@ where
     /// changes to Notion before exiting. Read by the runner after the main
     /// loop returns.
     pub should_push_on_exit: bool,
+    pub last_search_query: Option<String>,
     state: AppState,
     /// Keeps history of the changes on entries, enabling undo & redo operations
     history: HistoryManager,
@@ -81,6 +82,7 @@ where
             redraw_after_restore: false,
             filter: None,
             should_push_on_exit: false,
+            last_search_query: None,
             state: Default::default(),
             history,
             colored_tags,

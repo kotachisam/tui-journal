@@ -27,6 +27,9 @@ pub struct GeneralStyles {
     pub list_highlight_active: Style,
     #[serde(default = "list_highlight_inactive")]
     pub list_highlight_inactive: Style,
+
+    #[serde(default = "search_highlight")]
+    pub search_highlight: Style,
 }
 
 impl Default for GeneralStyles {
@@ -39,6 +42,7 @@ impl Default for GeneralStyles {
             list_item_selected: list_item_selected(),
             list_highlight_active: list_highlight_active(),
             list_highlight_inactive: list_highlight_inactive(),
+            search_highlight: search_highlight(),
         }
     }
 }
@@ -97,6 +101,15 @@ fn list_highlight_inactive() -> Style {
     Style {
         fg: Some(Color::Black),
         bg: Some(Color::LightBlue),
+        ..Default::default()
+    }
+}
+
+fn search_highlight() -> Style {
+    Style {
+        fg: Some(Color::Black),
+        bg: Some(Color::Yellow),
+        modifiers: Modifier::BOLD,
         ..Default::default()
     }
 }

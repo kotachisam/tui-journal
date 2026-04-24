@@ -15,7 +15,7 @@ use crate::app::keymap::Input;
 
 use super::{Styles, ui_functions::centered_rect};
 
-const FOOTER_TEXT: &str = "Esc, Enter, <Ctrl-m>, <Ctrl-c>: Close | Up, Down, <Ctrl-n>, <Ctrl-p>: cycle through filtered list";
+const FOOTER_TEXT: &str = "Enter, <Ctrl-m>: Select & highlight in preview | Esc, <Ctrl-c>: Cancel | Up, Down, <Ctrl-n>, <Ctrl-p>: cycle through filtered list";
 const FOOTER_MARGINE: usize = 8;
 
 pub struct FuzzFindPopup<'a> {
@@ -29,6 +29,7 @@ pub struct FuzzFindPopup<'a> {
 
 pub enum FuzzFindReturn {
     Close,
+    Commit,
     SelectEntry(Option<u32>),
 }
 
@@ -157,8 +158,10 @@ impl FuzzFindPopup<'_> {
         let has_control = input.modifiers.contains(KeyModifiers::CONTROL);
 
         match input.key_code {
-            KeyCode::Esc | KeyCode::Enter => return FuzzFindReturn::Close,
-            KeyCode::Char('c') | KeyCode::Char('m') if has_control => return FuzzFindReturn::Close,
+            KeyCode::Esc => return FuzzFindReturn::Close,
+            KeyCode::Enter => return FuzzFindReturn::Commit,
+            KeyCode::Char('c') if has_control => return FuzzFindReturn::Close,
+            KeyCode::Char('m') if has_control => return FuzzFindReturn::Commit,
             KeyCode::Up => self.cycle_prev_entry(),
             KeyCode::Char('p') if has_control => self.cycle_prev_entry(),
             KeyCode::Down => self.cycle_next_entry(),
@@ -178,6 +181,10 @@ impl FuzzFindPopup<'_> {
         });
 
         FuzzFindReturn::SelectEntry(selected_id)
+    }
+
+    pub fn query(&self) -> Option<&str> {
+        self.search_query.as_deref()
     }
 
     pub fn cycle_next_entry(&mut self) {
