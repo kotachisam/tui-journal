@@ -7,7 +7,10 @@ use ratatui::{
 
 use backend::EntryRevision;
 
-use crate::app::keymap::Input;
+use crate::{
+    app::keymap::Input,
+    settings::{DateFormat, Settings},
+};
 
 use super::{Styles, ui_functions::centered_rect};
 
@@ -25,10 +28,11 @@ pub struct RevisionPopup {
     revisions: Vec<EntryRevision>,
     state: ListState,
     entry_title_for_header: String,
+    date_format: DateFormat,
 }
 
 impl RevisionPopup {
-    pub fn new(revisions: Vec<EntryRevision>, entry_title: String) -> Self {
+    pub fn new(revisions: Vec<EntryRevision>, entry_title: String, settings: &Settings) -> Self {
         let mut state = ListState::default();
         if !revisions.is_empty() {
             state.select(Some(0));
@@ -37,6 +41,7 @@ impl RevisionPopup {
             revisions,
             state,
             entry_title_for_header: entry_title,
+            date_format: settings.date_format.clone(),
         }
     }
 
@@ -93,7 +98,12 @@ impl RevisionPopup {
             .revisions
             .iter()
             .map(|rev| {
-                let label = format!("{}  {}", rev.saved_at.format("%Y-%m-%d %H:%M"), truncate(&rev.title, 24));
+                let label = format!(
+                    "{} {}  {}",
+                    self.date_format.display(&rev.saved_at),
+                    rev.saved_at.format("%H:%M"),
+                    truncate(&rev.title, 24)
+                );
                 ListItem::new(label)
             })
             .collect();
@@ -116,7 +126,7 @@ impl RevisionPopup {
             Some(rev) => {
                 let mut out = String::new();
                 out.push_str(&format!("Title: {}\n", rev.title));
-                out.push_str(&format!("Date:  {}\n", rev.date.format("%Y-%m-%d")));
+                out.push_str(&format!("Date:  {}\n", self.date_format.display(&rev.date)));
                 if !rev.tags.is_empty() {
                     out.push_str(&format!("Tags:  {}\n", rev.tags.join(", ")));
                 }
@@ -137,9 +147,10 @@ impl RevisionPopup {
     }
 
     fn render_empty_state(&self, frame: &mut Frame, area: Rect) {
-        let msg = Paragraph::new("\nNo revisions yet. This entry hasn't been edited since creation.")
-            .alignment(Alignment::Center)
-            .wrap(Wrap { trim: false });
+        let msg =
+            Paragraph::new("\nNo revisions yet. This entry hasn't been edited since creation.")
+                .alignment(Alignment::Center)
+                .wrap(Wrap { trim: false });
         frame.render_widget(msg, area);
     }
 
@@ -156,13 +167,12 @@ impl RevisionPopup {
             }
             KeyCode::Esc | KeyCode::Char('q') => RevisionPopupReturn::Close,
             KeyCode::Char('c') if has_control => RevisionPopupReturn::Close,
-            KeyCode::Char('r') => {
-                self.state
-                    .selected()
-                    .and_then(|idx| self.revisions.get(idx).cloned())
-                    .map(RevisionPopupReturn::Restore)
-                    .unwrap_or(RevisionPopupReturn::Keep)
-            }
+            KeyCode::Char('r') => self
+                .state
+                .selected()
+                .and_then(|idx| self.revisions.get(idx).cloned())
+                .map(RevisionPopupReturn::Restore)
+                .unwrap_or(RevisionPopupReturn::Keep),
             _ => RevisionPopupReturn::Keep,
         }
     }

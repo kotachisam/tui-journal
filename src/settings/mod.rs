@@ -16,6 +16,7 @@ use serde::{
 
 use crate::app::state::AppState;
 
+pub use self::date_format::DateFormat;
 #[cfg(feature = "json")]
 use self::json_backend::{JsonBackend, get_default_json_path};
 #[cfg(feature = "sqlite")]
@@ -28,6 +29,7 @@ pub mod notion;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 
+mod date_format;
 mod export;
 mod external_editor;
 
@@ -62,6 +64,8 @@ pub struct Settings {
     /// Sets the visibility options for the datum of journals when rendered in entries list.
     pub datum_visibility: DatumVisibility,
     #[serde(default)]
+    pub date_format: DateFormat,
+    #[serde(default)]
     /// Sets the visibility options for the tags of journals when rendered in entries list.
     pub tag_visibility: TagVisibility,
     /// Overwrite the path for the directory used to persist the app state.
@@ -86,6 +90,7 @@ impl Default for Settings {
             history_limit: default_history_limit(),
             colored_tags: default_colored_tags(),
             datum_visibility: Default::default(),
+            date_format: Default::default(),
             tag_visibility: Default::default(),
             app_state_dir: Default::default(),
             notion: Default::default(),
@@ -192,6 +197,7 @@ impl Settings {
             history_limit: _,
             colored_tags: _,
             datum_visibility: _,
+            date_format: _,
             tag_visibility: _,
             app_state_dir: _,
             notion: _,

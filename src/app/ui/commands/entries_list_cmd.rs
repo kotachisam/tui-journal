@@ -165,7 +165,10 @@ fn edit_current_entry<D: DataProvider>(ui_components: &mut UIComponents, app: &m
     if let Some(entry) = app.get_current_entry() {
         ui_components
             .popup_stack
-            .push(Popup::Entry(Box::new(EntryPopup::from_entry(entry))));
+            .push(Popup::Entry(Box::new(EntryPopup::from_entry(
+                entry,
+                &app.settings,
+            ))));
     }
 }
 
@@ -446,7 +449,7 @@ pub async fn exec_show_revision_history<D: DataProvider>(
 
     match app.get_revisions(entry_id).await {
         Ok(revisions) => {
-            ui_components.open_revision_popup(revisions, entry_title);
+            ui_components.open_revision_popup(revisions, entry_title, &app.settings);
         }
         Err(err) => {
             ui_components.show_err_msg(format!("Failed to load revisions: {err}"));

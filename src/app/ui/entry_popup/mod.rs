@@ -1,5 +1,5 @@
 use anyhow::Ok;
-use chrono::{Datelike, Local, NaiveDate, TimeZone, Utc};
+use chrono::{Datelike, Local, TimeZone, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -11,7 +11,7 @@ use tui_textarea::{CursorMove, TextArea};
 
 use crate::{
     app::{App, keymap::Input, templates::Template},
-    settings::Settings,
+    settings::{DateFormat, Settings},
 };
 
 use backend::{DataProvider, Entry};
@@ -40,6 +40,7 @@ pub struct EntryPopup<'a> {
     /// When set, the confirm path uses this as the new entry's content
     /// instead of creating an empty one. Populated by `from_template`.
     template_content: Option<String>,
+    date_format: DateFormat,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -64,12 +65,7 @@ impl EntryPopup<'_> {
 
         let date = Local::now();
 
-        let date_txt = TextArea::new(vec![format!(
-            "{:02}-{:02}-{}",
-            date.day(),
-            date.month(),
-            date.year()
-        )]);
+        let date_txt = TextArea::new(vec![settings.date_format.display(&date)]);
 
         let tags_txt = TextArea::default();
 
@@ -92,6 +88,7 @@ impl EntryPopup<'_> {
             priority_err_msg: String::default(),
             tags_popup: None,
             template_content: None,
+            date_format: settings.date_format.clone(),
         }
     }
 
@@ -103,18 +100,11 @@ impl EntryPopup<'_> {
         let title_txt = TextArea::new(vec![template.title.clone().unwrap_or_default()]);
 
         let date = Local::now();
-        let date_txt = TextArea::new(vec![format!(
-            "{:02}-{:02}-{}",
-            date.day(),
-            date.month(),
-            date.year()
-        )]);
+        let date_txt = TextArea::new(vec![settings.date_format.display(&date)]);
 
         let tags_txt = TextArea::new(vec![tags_to_text(&template.tags)]);
 
-        let priority_value = template
-            .priority
-            .or(settings.default_journal_priority);
+        let priority_value = template.priority.or(settings.default_journal_priority);
         let priority_txt = if let Some(priority) = priority_value {
             TextArea::new(vec![priority.to_string()])
         } else {
@@ -134,21 +124,17 @@ impl EntryPopup<'_> {
             priority_err_msg: String::default(),
             tags_popup: None,
             template_content: Some(template.content.clone()),
+            date_format: settings.date_format.clone(),
         };
         popup.validate_all();
         popup
     }
 
-    pub fn from_entry(entry: &Entry) -> Self {
+    pub fn from_entry(entry: &Entry, settings: &Settings) -> Self {
         let mut title_txt = TextArea::new(vec![entry.title.to_owned()]);
         title_txt.move_cursor(CursorMove::End);
 
-        let date_txt = TextArea::new(vec![format!(
-            "{:02}-{:02}-{}",
-            entry.date.day(),
-            entry.date.month(),
-            entry.date.year()
-        )]);
+        let date_txt = TextArea::new(vec![settings.date_format.display(&entry.date)]);
 
         let tags = tags_to_text(&entry.tags);
 
@@ -173,6 +159,7 @@ impl EntryPopup<'_> {
             priority_err_msg: String::default(),
             tags_popup: None,
             template_content: None,
+            date_format: settings.date_format.clone(),
         };
 
         entry_popup.validate_all();
@@ -392,7 +379,7 @@ impl EntryPopup<'_> {
     }
 
     fn validate_date(&mut self) {
-        if let Err(err) = NaiveDate::parse_from_str(self.date_txt.lines()[0].as_str(), "%d-%m-%Y") {
+        if let Err(err) = self.date_format.parse(self.date_txt.lines()[0].as_str()) {
             self.date_err_msg = err.to_string();
         } else {
             self.date_err_msg.clear();
@@ -528,7 +515,9 @@ impl EntryPopup<'_> {
         }
 
         let title = self.title_txt.lines()[0].to_owned();
-        let date = NaiveDate::parse_from_str(self.date_txt.lines()[0].as_str(), "%d-%m-%Y")
+        let date = self
+            .date_format
+            .parse(self.date_txt.lines()[0].as_str())
             .expect("Date must be valid here");
 
         let date = Utc

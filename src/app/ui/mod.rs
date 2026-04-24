@@ -194,9 +194,7 @@ impl UIComponents<'_> {
                 Popup::Template(template_popup) => {
                     template_popup.render_widget(f, f.area(), &self.styles)
                 }
-                Popup::Revision(rev_popup) => {
-                    rev_popup.render_widget(f, f.area(), &self.styles)
-                }
+                Popup::Revision(rev_popup) => rev_popup.render_widget(f, f.area(), &self.styles),
             }
         }
     }
@@ -356,21 +354,17 @@ impl UIComponents<'_> {
                             self.set_current_entry(current_entry_id, app);
                         }
                     },
-                    Popup::Template(template_popup) => {
-                        match template_popup.handle_input(input) {
-                            TemplatePopupReturn::Keep => {}
-                            TemplatePopupReturn::Cancel => {
-                                self.popup_stack.pop().expect("popup stack isn't empty");
-                            }
-                            TemplatePopupReturn::Apply(template) => {
-                                self.popup_stack.pop().expect("popup stack isn't empty");
-                                let entry_popup =
-                                    EntryPopup::from_template(&template, &app.settings);
-                                self.popup_stack
-                                    .push(Popup::Entry(Box::new(entry_popup)));
-                            }
+                    Popup::Template(template_popup) => match template_popup.handle_input(input) {
+                        TemplatePopupReturn::Keep => {}
+                        TemplatePopupReturn::Cancel => {
+                            self.popup_stack.pop().expect("popup stack isn't empty");
                         }
-                    }
+                        TemplatePopupReturn::Apply(template) => {
+                            self.popup_stack.pop().expect("popup stack isn't empty");
+                            let entry_popup = EntryPopup::from_template(&template, &app.settings);
+                            self.popup_stack.push(Popup::Entry(Box::new(entry_popup)));
+                        }
+                    },
                     Popup::Revision(rev_popup) => match rev_popup.handle_input(input) {
                         RevisionPopupReturn::Keep => {}
                         RevisionPopupReturn::Close => {
@@ -388,9 +382,7 @@ impl UIComponents<'_> {
                                     );
                                 }
                                 Err(err) => {
-                                    self.show_err_msg(format!(
-                                        "Failed to restore revision: {err}"
-                                    ));
+                                    self.show_err_msg(format!("Failed to restore revision: {err}"));
                                 }
                             }
                         }
@@ -521,8 +513,9 @@ impl UIComponents<'_> {
         &mut self,
         revisions: Vec<backend::EntryRevision>,
         entry_title: String,
+        settings: &crate::settings::Settings,
     ) {
-        let popup = RevisionPopup::new(revisions, entry_title);
+        let popup = RevisionPopup::new(revisions, entry_title, settings);
         self.popup_stack.push(Popup::Revision(Box::new(popup)));
     }
 
