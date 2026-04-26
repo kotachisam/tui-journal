@@ -45,7 +45,6 @@ notionrs_types = "0.16"
 futures = "0.3"
 time = "0.3"
 dotenvy = "0.15"
-nucleo = "0.5.0"
 
 [features]
 default = ["json", "sqlite"]

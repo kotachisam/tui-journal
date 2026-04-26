@@ -244,7 +244,7 @@ where
 
         let entry = self
             .get_entry_mut(entry_id, EntryEditPart::Attributes, history_target)
-            .expect("Current entry must have value when updating entry attributes");
+            .expect("Entry not found for id when updating attributes");
 
         entry.title = title;
         entry.date = date;
@@ -297,7 +297,7 @@ where
 
         let entry = self
             .get_entry_mut(entry_id, EntryEditPart::Content, history_target)
-            .expect("Current entry id must have value when updating entry content");
+            .expect("Entry not found for id when updating content");
 
         entry.content = entry_content;
         entry.updated_at = Some(Utc::now());
