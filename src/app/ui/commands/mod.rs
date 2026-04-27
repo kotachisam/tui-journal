@@ -55,6 +55,7 @@ pub enum UICommand {
     ResetFilter,
     CycleTagFilter,
     ShowFuzzyFind,
+    SyncNotion,
     ToggleEditorVisualMode,
     ToggleFullScreenMode,
     TogglePreviewMode,
@@ -191,6 +192,10 @@ impl UICommand {
                 "Search",
                 "Fuzzy search across entries (title, content, tags)",
             ),
+            UICommand::SyncNotion => CommandInfo::new(
+                "Sync to Notion",
+                "Push local entries to Notion if any are unsynced",
+            ),
             UICommand::ToggleEditorVisualMode => CommandInfo::new(
                 "Toggle Editor Visual Mode",
                 "Toggle Editor Visual(Select) Mode when editor is in focus",
@@ -260,7 +265,7 @@ impl UICommand {
         app: &mut App<D>,
     ) -> CmdResult {
         match self {
-            UICommand::Quit => exec_quit(ui_components),
+            UICommand::Quit => exec_quit(ui_components, app).await,
             UICommand::ShowHelp => exec_show_help(ui_components),
             UICommand::CycleFocusedControlForward => exec_cycle_forward(ui_components),
             UICommand::CycleFocusedControlBack => exec_cycle_backward(ui_components),
@@ -290,6 +295,7 @@ impl UICommand {
             UICommand::ResetFilter => exec_reset_filter(app),
             UICommand::CycleTagFilter => exec_cycle_tag_filter(ui_components, app),
             UICommand::ShowFuzzyFind => exec_show_fuzzy_find(ui_components, app),
+            UICommand::SyncNotion => exec_sync_notion(ui_components, app),
             UICommand::ToggleEditorVisualMode => exec_toggle_editor_visual_mode(ui_components),
             UICommand::ToggleFullScreenMode => exec_toggle_full_screen_mode(app),
             UICommand::TogglePreviewMode => exec_toggle_preview_mode(ui_components),
@@ -382,6 +388,7 @@ impl UICommand {
             UICommand::ShowFuzzyFind => {
                 continue_fuzzy_find(ui_components, app, msg_box_result).await
             }
+            UICommand::SyncNotion => continue_sync_notion(app, msg_box_result).await,
             UICommand::ToggleEditorVisualMode => not_implemented(),
             UICommand::ToggleFullScreenMode => not_implemented(),
             UICommand::TogglePreviewMode => not_implemented(),

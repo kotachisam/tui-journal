@@ -30,6 +30,11 @@ pub struct GeneralStyles {
 
     #[serde(default = "search_highlight")]
     pub search_highlight: Style,
+
+    // TODO(upstream): if this lands in Ammar's repo, add a `toast` entry to the help/?
+    // tooltip and document the [general.toast] section in THEMES.md / README themes table.
+    #[serde(default = "toast")]
+    pub toast: Style,
 }
 
 impl Default for GeneralStyles {
@@ -43,6 +48,7 @@ impl Default for GeneralStyles {
             list_highlight_active: list_highlight_active(),
             list_highlight_inactive: list_highlight_inactive(),
             search_highlight: search_highlight(),
+            toast: toast(),
         }
     }
 }
@@ -110,6 +116,14 @@ fn search_highlight() -> Style {
         fg: Some(Color::Black),
         bg: Some(Color::Yellow),
         modifiers: Modifier::BOLD,
+        ..Default::default()
+    }
+}
+
+fn toast() -> Style {
+    Style {
+        fg: Some(Color::LightCyan),
+        modifiers: Modifier::ITALIC | Modifier::BOLD,
         ..Default::default()
     }
 }

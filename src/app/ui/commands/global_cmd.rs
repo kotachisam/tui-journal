@@ -9,12 +9,15 @@ use backend::DataProvider;
 
 use super::{CmdResult, editor_cmd::exec_save_entry_content};
 
-pub fn exec_quit(ui_components: &mut UIComponents) -> CmdResult {
+pub async fn exec_quit<D: DataProvider>(
+    ui_components: &mut UIComponents<'_>,
+    app: &mut App<D>,
+) -> CmdResult {
     if ui_components.has_unsaved() {
         ui_components.show_unsaved_msg_box(Some(UICommand::Quit));
         Ok(HandleInputReturnType::Handled)
     } else {
-        Ok(HandleInputReturnType::ExitApp)
+        Ok(resolve_exit(ui_components, app).await)
     }
 }
 
@@ -62,14 +65,15 @@ async fn resolve_exit<D: DataProvider>(
 }
 
 pub async fn continue_quit_and_sync<D: DataProvider>(
-    _ui_components: &mut UIComponents<'_>,
+    ui_components: &mut UIComponents<'_>,
     app: &mut App<D>,
     msg_box_result: MsgBoxResult,
 ) -> CmdResult {
     match msg_box_result {
         MsgBoxResult::Yes => {
             app.should_push_on_exit = true;
-            Ok(HandleInputReturnType::ExitApp)
+            ui_components.pending_exit_after_push = true;
+            Ok(HandleInputReturnType::Handled)
         }
         MsgBoxResult::No => Ok(HandleInputReturnType::ExitApp),
         MsgBoxResult::Ok | MsgBoxResult::Cancel => Ok(HandleInputReturnType::Handled),

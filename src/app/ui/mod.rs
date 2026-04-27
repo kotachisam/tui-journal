@@ -48,10 +48,12 @@ mod revision_popup;
 mod sort_popup;
 mod template_popup;
 pub mod themes;
+mod toast;
 pub mod ui_functions;
 
 pub use commands::UICommand;
 pub use msg_box::MsgBoxResult;
+pub use toast::Toast;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ControlType {
@@ -89,6 +91,8 @@ pub struct UIComponents<'a> {
     popup_stack: Vec<Popup<'a>>,
     pub active_control: ControlType,
     pending_command: Option<UICommand>,
+    pub current_toast: Option<Toast>,
+    pub pending_exit_after_push: bool,
 }
 
 impl UIComponents<'_> {
@@ -114,7 +118,13 @@ impl UIComponents<'_> {
             popup_stack: Vec::new(),
             active_control,
             pending_command: None,
+            current_toast: None,
+            pending_exit_after_push: false,
         }
+    }
+
+    pub fn show_toast(&mut self, msg: String) {
+        self.current_toast = Some(Toast::new(msg));
     }
 
     pub fn has_popup(&self) -> bool {
@@ -306,6 +316,10 @@ impl UIComponents<'_> {
                             self.popup_stack.pop().expect("popup stack isn't empty");
                             if let Some(cmd) = self.pending_command.take() {
                                 return cmd.continue_executing(self, app, msg_box_result).await;
+                            }
+                            if self.pending_exit_after_push {
+                                self.pending_exit_after_push = false;
+                                return Ok(HandleInputReturnType::ExitApp);
                             }
                         }
                     },

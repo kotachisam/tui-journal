@@ -1,7 +1,7 @@
 use backend::DataProvider;
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::Style,
     widgets::{Block, Borders, Paragraph, Wrap},
 };
@@ -18,7 +18,9 @@ pub fn get_footer_height<D: DataProvider>(
     app: &App<D>,
 ) -> u16 {
     let footer_text = get_footer_text(ui_components, app);
-    footer_text.len() as u16 / width + 1
+    let base = footer_text.len() as u16 / width + 1;
+    let toast_extra = if toast_active(ui_components) { 1 } else { 0 };
+    base + toast_extra
 }
 
 pub fn render_footer<D: DataProvider>(
@@ -27,6 +29,23 @@ pub fn render_footer<D: DataProvider>(
     ui_components: &UIComponents,
     app: &App<D>,
 ) {
+    let hints_area = if toast_active(ui_components) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(1)].as_ref())
+            .split(area);
+        if let Some(toast) = ui_components.current_toast.as_ref() {
+            let toast_style: Style = ui_components.styles.general.toast.into();
+            let toast_para = Paragraph::new(toast.message.as_str())
+                .alignment(Alignment::Center)
+                .style(toast_style);
+            frame.render_widget(toast_para, chunks[0]);
+        }
+        chunks[1]
+    } else {
+        area
+    };
+
     let footer_text = get_footer_text(ui_components, app);
     let footer = Paragraph::new(footer_text)
         .alignment(Alignment::Left)
@@ -37,7 +56,14 @@ pub fn render_footer<D: DataProvider>(
                 .style(Style::default()),
         );
 
-    frame.render_widget(footer, area);
+    frame.render_widget(footer, hints_area);
+}
+
+fn toast_active(ui_components: &UIComponents) -> bool {
+    ui_components
+        .current_toast
+        .as_ref()
+        .is_some_and(|t| t.is_active())
 }
 
 fn get_footer_text<D: DataProvider>(ui_components: &UIComponents, app: &App<D>) -> String {

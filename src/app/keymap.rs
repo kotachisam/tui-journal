@@ -237,6 +237,10 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::ShowSortOptions,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('P'), KeyModifiers::SHIFT),
+            UICommand::SyncNotion,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Home, KeyModifiers::NONE),
             UICommand::GoToTopEntry,
         ),

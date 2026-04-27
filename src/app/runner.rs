@@ -130,28 +130,9 @@ where
                         draw_ui(terminal, &mut app, &mut ui_components)?;
                     }
                     HandleInputReturnType::ExitApp => {
-                        // Logging persisting errors by closing the app is enough
                         if let Err(err) = app.persist_state() {
                             log::error!("Persisting app state failed: Error info {err}");
                         }
-
-                        if app.should_push_on_exit {
-                            match run_notion_push(terminal, &app.data_provide, &app.settings.notion)
-                                .await
-                            {
-                                Ok(outcome) => log::info!(
-                                    "Exit-time Notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
-                                    outcome.created,
-                                    outcome.updated,
-                                    outcome.archived,
-                                    outcome.skipped_unchanged,
-                                    outcome.skipped_conflict,
-                                    outcome.errored,
-                                ),
-                                Err(err) => log::error!("Exit-time Notion push failed: {err}"),
-                            }
-                        }
-
                         return Ok(());
                     }
                     HandleInputReturnType::Ignore => {}
@@ -161,6 +142,43 @@ where
                 ui_components.show_err_msg(err.to_string());
                 draw_ui(terminal, &mut app, &mut ui_components)?;
             }
+        }
+
+        if app.should_push_on_exit {
+            app.should_push_on_exit = false;
+            match run_notion_push(terminal, &app.data_provide, &app.settings.notion).await {
+                Ok(outcome) => {
+                    log::info!(
+                        "Notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
+                        outcome.created,
+                        outcome.updated,
+                        outcome.archived,
+                        outcome.skipped_unchanged,
+                        outcome.skipped_conflict,
+                        outcome.errored,
+                    );
+                    if let Err(err) = app.load_entries().await {
+                        log::warn!("Failed to refresh entries after push: {err}");
+                    }
+                    if outcome.errored > 0 {
+                        ui_components.show_err_msg(format!(
+                            "Notion push completed with {} errored entries. Check log for details.",
+                            outcome.errored
+                        ));
+                    } else if ui_components.pending_exit_after_push {
+                        ui_components.pending_exit_after_push = false;
+                        if let Err(err) = app.persist_state() {
+                            log::error!("Persisting app state failed: Error info {err}");
+                        }
+                        return Ok(());
+                    }
+                }
+                Err(err) => {
+                    log::error!("Notion push failed: {err}");
+                    ui_components.show_err_msg(format!("Notion push failed: {err}"));
+                }
+            }
+            draw_ui(terminal, &mut app, &mut ui_components)?;
         }
     }
 
