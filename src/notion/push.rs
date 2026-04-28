@@ -130,10 +130,10 @@ enum PushAction {
 
 fn decide_push(entry: &Entry, remote: &HashMap<&str, &PageResponse>) -> PushAction {
     if entry.deleted_at.is_some() {
-        if let Some(external_id) = entry.external_id.as_deref() {
-            if remote.contains_key(external_id) {
-                return PushAction::Archive(external_id.to_owned());
-            }
+        if let Some(external_id) = entry.external_id.as_deref()
+            && remote.contains_key(external_id)
+        {
+            return PushAction::Archive(external_id.to_owned());
         }
         return PushAction::Skip;
     }
