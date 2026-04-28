@@ -2,3 +2,4 @@
 .dev.vars
 .env
 .claude/
+.DS_Store
