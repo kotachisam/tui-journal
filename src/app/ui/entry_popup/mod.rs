@@ -482,6 +482,21 @@ impl EntryPopup<'_> {
 
         let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
 
+        // Ctrl-Backspace (or Ctrl-W as a terminal-compat fallback) in the tags
+        // field deletes the whole tag at the cursor instead of one character.
+        // Fires regardless of whether the autocomplete overlay is visible.
+        if matches!(self.active_txt, ActiveText::Tags)
+            && has_ctrl
+            && matches!(
+                input.key_code,
+                KeyCode::Backspace | KeyCode::Char('w') | KeyCode::Char('W')
+            )
+        {
+            self.delete_tag_at_cursor();
+            self.recompute_tag_suggestions(app);
+            return Ok(EntryPopupInputReturn::KeepPopup);
+        }
+
         // Tag autocomplete overlay intercepts Up/Down/Tab/Enter/Esc when visible
         // and the user is in the tags field. Other states fall through to the
         // existing field-cycle / confirm / cancel bindings.
@@ -588,6 +603,21 @@ impl EntryPopup<'_> {
         let query = tags_autocomplete::extract_active_query(&line, col);
         let tags = app.get_all_tags();
         self.tag_suggestions = tags_autocomplete::SuggestionState::build(query, &tags);
+    }
+
+    fn delete_tag_at_cursor(&mut self) {
+        let line = self.tags_txt.lines().first().cloned().unwrap_or_default();
+        let (_, cursor_char) = self.tags_txt.cursor();
+        let Some((new_line, new_cursor_char)) =
+            tags_autocomplete::delete_tag_at_cursor(&line, cursor_char)
+        else {
+            return;
+        };
+        let mut new_tags = TextArea::new(vec![new_line]);
+        new_tags.move_cursor(CursorMove::Jump(0, new_cursor_char as u16));
+        self.tags_txt = new_tags;
+        self.tag_suggestions = None;
+        self.validate_tags();
     }
 
     fn apply_selected_tag(&mut self) {

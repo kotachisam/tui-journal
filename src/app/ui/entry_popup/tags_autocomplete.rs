@@ -85,6 +85,67 @@ pub fn active_query_start(line: &str, cursor: usize) -> usize {
     after_comma_idx + trim_offset
 }
 
+/// Removes the tag containing the cursor (or the previous one if the cursor
+/// sits in a whitespace-only trailing segment), preserving trailing `, ` if
+/// the original line had one. Returns `(new_line, new_cursor_char)` or `None`
+/// if there's nothing to delete.
+///
+/// `cursor` is a character index (per `TextArea::cursor`).
+pub fn delete_tag_at_cursor(line: &str, cursor: usize) -> Option<(String, usize)> {
+    if line.is_empty() {
+        return None;
+    }
+    let cursor_byte = char_index_to_byte_index(line, cursor);
+
+    // Find which comma-separated segment the cursor is in by counting commas
+    // strictly before the cursor's byte position.
+    let mut comma_count = 0usize;
+    for (b, ch) in line.char_indices() {
+        if b >= cursor_byte {
+            break;
+        }
+        if ch == ',' {
+            comma_count += 1;
+        }
+    }
+    let cursor_segment_idx = comma_count;
+
+    let tags: Vec<&str> = line.split(',').map(str::trim).collect();
+    if cursor_segment_idx >= tags.len() {
+        return None;
+    }
+
+    // If the cursor's segment is empty/whitespace and there's a previous
+    // segment, the user probably wants the previous tag deleted (the
+    // "Tab inserted, then changed mind" case where cursor sits after `, `).
+    let target_idx = if tags[cursor_segment_idx].is_empty() && cursor_segment_idx > 0 {
+        cursor_segment_idx - 1
+    } else if tags[cursor_segment_idx].is_empty() {
+        return None;
+    } else {
+        cursor_segment_idx
+    };
+
+    let nonempty: Vec<&str> = tags
+        .iter()
+        .enumerate()
+        .filter(|(i, s)| *i != target_idx && !s.is_empty())
+        .map(|(_, s)| *s)
+        .collect();
+
+    let trailing_comma = line.trim_end().ends_with(',');
+    let new_line = if nonempty.is_empty() {
+        String::new()
+    } else if trailing_comma {
+        format!("{}, ", nonempty.join(", "))
+    } else {
+        nonempty.join(", ")
+    };
+
+    let new_cursor_char = new_line.chars().count();
+    Some((new_line, new_cursor_char))
+}
+
 fn compute_matches(query: &str, tags: &[String]) -> Vec<(i64, String)> {
     if query.is_empty() {
         return Vec::new();
@@ -250,6 +311,65 @@ mod tests {
             state.move_down();
         }
         assert_eq!(state.selected_index(), count - 1);
+    }
+
+    #[test]
+    fn delete_tag_removes_last_after_trailing_comma() {
+        // "Tab-inserted then changed mind" case
+        let line = "✅ Productive, ⚡ Energised, ";
+        let cursor = line.chars().count();
+        let (new_line, new_cursor) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "✅ Productive, ");
+        assert_eq!(new_cursor, new_line.chars().count());
+    }
+
+    #[test]
+    fn delete_tag_removes_middle() {
+        let line = "a, b, c";
+        let cursor_byte = 4; // inside " b"
+        let cursor = line[..cursor_byte].chars().count();
+        let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "a, c");
+    }
+
+    #[test]
+    fn delete_tag_removes_last_no_trailing_comma() {
+        let line = "a, b";
+        let cursor = line.chars().count();
+        let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "a");
+    }
+
+    #[test]
+    fn delete_tag_clears_single_tag() {
+        let line = "loneTag";
+        let cursor = line.chars().count();
+        let (new_line, new_cursor) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "");
+        assert_eq!(new_cursor, 0);
+    }
+
+    #[test]
+    fn delete_tag_clears_just_comma_space() {
+        let line = ", ";
+        let cursor = line.chars().count();
+        let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "");
+    }
+
+    #[test]
+    fn delete_tag_returns_none_for_empty_line() {
+        assert!(delete_tag_at_cursor("", 0).is_none());
+    }
+
+    #[test]
+    fn delete_tag_handles_multibyte_in_middle() {
+        let line = "a, ⚡ Energised, c";
+        // Cursor right after "Energised" — inside the middle tag
+        let cursor_byte = "a, ⚡ Energised".len();
+        let cursor = line[..cursor_byte].chars().count();
+        let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
+        assert_eq!(new_line, "a, c");
     }
 
     #[test]
