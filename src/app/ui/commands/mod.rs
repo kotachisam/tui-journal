@@ -78,6 +78,10 @@ pub enum UICommand {
     CreateDefaultTemplates,
     /// Opens the revision history popup for the current entry.
     ShowRevisionHistory,
+    /// Cycles the entries-list view to the next category tab.
+    CycleViewCategoryNext,
+    /// Cycles the entries-list view to the previous category tab.
+    CycleViewCategoryPrev,
 }
 
 #[derive(Debug, Clone)]
@@ -256,6 +260,14 @@ impl UICommand {
                 "Show revision history",
                 "Open a popup listing prior snapshots of the current journal entry",
             ),
+            UICommand::CycleViewCategoryNext => CommandInfo::new(
+                "Next category tab",
+                "Cycle the entries-list view to the next category (Journal, Post, ...)",
+            ),
+            UICommand::CycleViewCategoryPrev => CommandInfo::new(
+                "Previous category tab",
+                "Cycle the entries-list view to the previous category",
+            ),
         }
     }
 
@@ -325,6 +337,8 @@ impl UICommand {
                 unreachable!("CreateDefaultTemplates is pending-only, never dispatched as a keymap")
             }
             UICommand::ShowRevisionHistory => exec_show_revision_history(ui_components, app).await,
+            UICommand::CycleViewCategoryNext => exec_cycle_view_category(app, 1),
+            UICommand::CycleViewCategoryPrev => exec_cycle_view_category(app, -1),
         }
     }
 
@@ -447,6 +461,9 @@ impl UICommand {
             }
             UICommand::ShowRevisionHistory => {
                 unreachable!("ShowRevisionHistory has no msgbox continuation")
+            }
+            UICommand::CycleViewCategoryNext | UICommand::CycleViewCategoryPrev => {
+                unreachable!("Category cycle commands have no msgbox continuation")
             }
         }
     }

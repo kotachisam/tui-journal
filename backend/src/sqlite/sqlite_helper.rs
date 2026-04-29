@@ -11,6 +11,7 @@ pub(crate) struct EntryIntermediate {
     pub title: String,
     pub content: String,
     pub priority: Option<u32>,
+    pub category: String,
     /// Tags as a string with commas as separator for the tags
     pub tags: Option<String>,
     pub sync_provider: Option<String>,
@@ -29,6 +30,7 @@ impl From<EntryIntermediate> for Entry {
             title: value.title,
             content: value.content,
             priority: value.priority,
+            category: value.category,
             tags: value
                 .tags
                 .map(|tags| tags.split_terminator(',').map(String::from).collect())
@@ -107,6 +109,7 @@ mod tests {
             title: String::from("Title"),
             content: String::from("Content"),
             priority: Some(2),
+            category: String::from("journal"),
             tags: tags.map(String::from),
             sync_provider: None,
             external_id: None,

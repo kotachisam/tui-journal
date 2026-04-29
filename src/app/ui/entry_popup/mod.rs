@@ -5,7 +5,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use tui_textarea::{CursorMove, TextArea};
 
@@ -20,6 +20,8 @@ use self::tags::{TagsPopup, TagsPopupReturn};
 
 use super::{Styles, ui_functions::centered_rect_exact_height};
 
+mod category_autocomplete;
+mod fuzzy_suggestions;
 mod tags;
 mod tags_autocomplete;
 
@@ -31,14 +33,17 @@ pub struct EntryPopup<'a> {
     date_txt: TextArea<'a>,
     tags_txt: TextArea<'a>,
     priority_txt: TextArea<'a>,
+    category_txt: TextArea<'a>,
     is_edit_entry: bool,
     active_txt: ActiveText,
     title_err_msg: String,
     date_err_msg: String,
     tags_err_msg: String,
     priority_err_msg: String,
+    category_err_msg: String,
     tags_popup: Option<TagsPopup>,
-    tag_suggestions: Option<tags_autocomplete::SuggestionState>,
+    tag_suggestions: Option<fuzzy_suggestions::SuggestionState>,
+    category_suggestions: Option<fuzzy_suggestions::SuggestionState>,
     /// When set, the confirm path uses this as the new entry's content
     /// instead of creating an empty one. Populated by `from_template`.
     template_content: Option<String>,
@@ -51,6 +56,7 @@ enum ActiveText {
     Date,
     Tags,
     Priority,
+    Category,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -62,7 +68,7 @@ pub enum EntryPopupInputReturn {
 }
 
 impl EntryPopup<'_> {
-    pub fn new_entry(settings: &Settings) -> Self {
+    pub fn new_entry(settings: &Settings, default_category: &str) -> Self {
         let title_txt = TextArea::default();
 
         let date = Local::now();
@@ -77,19 +83,24 @@ impl EntryPopup<'_> {
             TextArea::default()
         };
 
+        let category_txt = TextArea::new(vec![default_category.to_owned()]);
+
         Self {
             title_txt,
             date_txt,
             tags_txt,
             priority_txt,
+            category_txt,
             is_edit_entry: false,
             active_txt: ActiveText::Title,
             title_err_msg: String::default(),
             date_err_msg: String::default(),
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
+            category_err_msg: String::default(),
             tags_popup: None,
             tag_suggestions: None,
+            category_suggestions: None,
             template_content: None,
             date_format: settings.date_format.clone(),
         }
@@ -99,7 +110,7 @@ impl EntryPopup<'_> {
     /// come from the template's frontmatter (any can be overridden by the
     /// user before confirming). Date defaults to today. Content is the
     /// template's body.
-    pub fn from_template(template: &Template, settings: &Settings) -> Self {
+    pub fn from_template(template: &Template, settings: &Settings, default_category: &str) -> Self {
         let title_txt = TextArea::new(vec![template.title.clone().unwrap_or_default()]);
 
         let date = Local::now();
@@ -114,19 +125,24 @@ impl EntryPopup<'_> {
             TextArea::default()
         };
 
+        let category_txt = TextArea::new(vec![default_category.to_owned()]);
+
         let mut popup = Self {
             title_txt,
             date_txt,
             tags_txt,
             priority_txt,
+            category_txt,
             is_edit_entry: false,
             active_txt: ActiveText::Title,
             title_err_msg: String::default(),
             date_err_msg: String::default(),
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
+            category_err_msg: String::default(),
             tags_popup: None,
             tag_suggestions: None,
+            category_suggestions: None,
             template_content: Some(template.content.clone()),
             date_format: settings.date_format.clone(),
         };
@@ -150,19 +166,25 @@ impl EntryPopup<'_> {
         let mut priority_txt = TextArea::new(vec![prio]);
         priority_txt.move_cursor(CursorMove::End);
 
+        let mut category_txt = TextArea::new(vec![entry.category.clone()]);
+        category_txt.move_cursor(CursorMove::End);
+
         let mut entry_popup = Self {
             title_txt,
             date_txt,
             tags_txt,
             priority_txt,
+            category_txt,
             is_edit_entry: true,
             active_txt: ActiveText::Title,
             title_err_msg: String::default(),
             date_err_msg: String::default(),
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
+            category_err_msg: String::default(),
             tags_popup: None,
             tag_suggestions: None,
+            category_suggestions: None,
             template_content: None,
             date_format: settings.date_format.clone(),
         };
@@ -173,7 +195,29 @@ impl EntryPopup<'_> {
     }
 
     pub fn render_widget(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
-        let mut area = centered_rect_exact_height(70, 17, area);
+        // Source-of-truth for the popup's vertical layout. Height is derived
+        // from these so adding a new field below just means appending another
+        // Constraint::Length(3) row and the popup auto-resizes.
+        const FIELD_CONSTRAINTS: &[Constraint] = &[
+            Constraint::Length(3), // Title
+            Constraint::Length(3), // Date
+            Constraint::Length(3), // Priority
+            Constraint::Length(3), // Category
+            Constraint::Length(3), // Tags
+            Constraint::Min(2),    // Footer (Min(2) so it gets 2 rows when there's room, can wrap)
+        ];
+
+        let target_height: u16 = FIELD_CONSTRAINTS
+            .iter()
+            .map(|c| match c {
+                Constraint::Length(n) => *n,
+                Constraint::Min(n) => *n,
+                _ => 0,
+            })
+            .sum::<u16>()
+            + 4; // vertical_margin(2) at top + bottom
+
+        let mut area = centered_rect_exact_height(70, target_height, area);
 
         const FOOTER_LEN: u16 = FOOTER_TEXT.len() as u16 + FOOTER_MARGIN;
 
@@ -196,22 +240,14 @@ impl EntryPopup<'_> {
             .direction(Direction::Vertical)
             .horizontal_margin(4)
             .vertical_margin(2)
-            .constraints(
-                [
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Length(3),
-                    Constraint::Min(1),
-                ]
-                .as_ref(),
-            )
+            .constraints(FIELD_CONSTRAINTS)
             .split(area);
 
         self.title_txt.set_cursor_line_style(Style::default());
         self.date_txt.set_cursor_line_style(Style::default());
         self.tags_txt.set_cursor_line_style(Style::default());
         self.priority_txt.set_cursor_line_style(Style::default());
+        self.category_txt.set_cursor_line_style(Style::default());
 
         let gstyles = &styles.general;
 
@@ -344,10 +380,40 @@ impl EntryPopup<'_> {
             );
         }
 
+        if self.category_err_msg.is_empty() {
+            let (block, cursor) = match self.active_txt {
+                ActiveText::Category => (active_block_style, active_cursor_style),
+                _ => (reset_style, deactivate_cursor_style),
+            };
+            self.category_txt.set_style(block);
+            self.category_txt.set_cursor_style(cursor);
+            self.category_txt.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(block)
+                    .title("Category"),
+            );
+        } else {
+            let cursor = if self.active_txt == ActiveText::Category {
+                invalid_cursor_style
+            } else {
+                deactivate_cursor_style
+            };
+            self.category_txt.set_style(invalid_block_style);
+            self.category_txt.set_cursor_style(cursor);
+            self.category_txt.set_block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .style(invalid_block_style)
+                    .title(format!("Category : {}", self.category_err_msg)),
+            );
+        }
+
         frame.render_widget(&self.title_txt, chunks[0]);
         frame.render_widget(&self.date_txt, chunks[1]);
         frame.render_widget(&self.priority_txt, chunks[2]);
-        frame.render_widget(&self.tags_txt, chunks[3]);
+        frame.render_widget(&self.category_txt, chunks[3]);
+        frame.render_widget(&self.tags_txt, chunks[4]);
 
         let footer = Paragraph::new(FOOTER_TEXT)
             .alignment(Alignment::Center)
@@ -358,10 +424,28 @@ impl EntryPopup<'_> {
                     .style(Style::default()),
             );
 
-        frame.render_widget(footer, chunks[4]);
+        frame.render_widget(footer, chunks[5]);
 
-        if matches!(self.active_txt, ActiveText::Tags) && self.tag_suggestions.is_some() {
-            self.render_tag_autocomplete(frame, chunks[3]);
+        if matches!(self.active_txt, ActiveText::Tags)
+            && let Some(state) = self.tag_suggestions.as_ref()
+        {
+            fuzzy_suggestions::render_overlay(
+                frame,
+                chunks[4],
+                state,
+                "Tags — Tab/Enter insert, Esc dismiss",
+            );
+        }
+
+        if matches!(self.active_txt, ActiveText::Category)
+            && let Some(state) = self.category_suggestions.as_ref()
+        {
+            fuzzy_suggestions::render_overlay(
+                frame,
+                chunks[3],
+                state,
+                "Category — Tab/Enter set, Esc dismiss",
+            );
         }
 
         if let Some(tags_popup) = self.tags_popup.as_mut() {
@@ -369,62 +453,12 @@ impl EntryPopup<'_> {
         }
     }
 
-    fn render_tag_autocomplete(&self, frame: &mut Frame, tags_area: Rect) {
-        let Some(state) = self.tag_suggestions.as_ref() else {
-            return;
-        };
-        let matches = state.matches();
-        if matches.is_empty() {
-            return;
-        }
-
-        let frame_area = frame.area();
-        let desired_height = (matches.len() as u16) + 2;
-        let below_y = tags_area.y + tags_area.height;
-        let space_below = frame_area.height.saturating_sub(below_y);
-
-        let (overlay_y, overlay_height) = if space_below >= desired_height {
-            (below_y, desired_height)
-        } else if tags_area.y >= desired_height {
-            (tags_area.y - desired_height, desired_height)
-        } else {
-            // Tight fit — clip below.
-            (below_y, space_below.max(3).min(desired_height))
-        };
-
-        let overlay_width = tags_area.width.min(60);
-        let overlay_area = Rect {
-            x: tags_area.x,
-            y: overlay_y,
-            width: overlay_width,
-            height: overlay_height,
-        };
-
-        let items: Vec<ListItem> = matches
-            .iter()
-            .map(|(_, tag)| ListItem::new(tag.as_str()))
-            .collect();
-
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title("Tags — Tab/Enter insert, Esc dismiss"),
-            )
-            .highlight_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
-
-        let mut list_state = ListState::default();
-        list_state.select(Some(state.selected_index()));
-
-        frame.render_widget(Clear, overlay_area);
-        frame.render_stateful_widget(list, overlay_area, &mut list_state);
-    }
-
     pub fn is_input_valid(&self) -> bool {
         self.title_err_msg.is_empty()
             && self.date_err_msg.is_empty()
             && self.tags_err_msg.is_empty()
             && self.priority_err_msg.is_empty()
+            && self.category_err_msg.is_empty()
     }
 
     pub fn validate_all(&mut self) {
@@ -432,6 +466,7 @@ impl EntryPopup<'_> {
         self.validate_date();
         self.validate_tags();
         self.validate_priority();
+        self.validate_category();
     }
 
     fn validate_title(&mut self) {
@@ -469,6 +504,22 @@ impl EntryPopup<'_> {
         }
     }
 
+    fn validate_category(&mut self) {
+        let category = self
+            .category_txt
+            .lines()
+            .first()
+            .map(|l| l.trim())
+            .unwrap_or_default();
+        if category.is_empty() {
+            self.category_err_msg = String::from("Category cannot be empty");
+        } else if category.contains(',') {
+            self.category_err_msg = String::from("Category cannot contain a comma");
+        } else {
+            self.category_err_msg.clear();
+        }
+    }
+
     pub async fn handle_input<D: DataProvider>(
         &mut self,
         input: &Input,
@@ -482,11 +533,13 @@ impl EntryPopup<'_> {
 
         let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
 
-        // Ctrl-Backspace (or Ctrl-W as a terminal-compat fallback) in the tags
-        // field deletes the whole tag at the cursor instead of one character.
-        // Fires regardless of whether the autocomplete overlay is visible.
+        // Ctrl-Backspace, Alt-Backspace (= Option-Backspace on macOS), or
+        // Ctrl-W in the tags field deletes the whole tag at the cursor
+        // instead of one character / one word. Fires regardless of whether
+        // the autocomplete overlay is visible.
+        let has_word_modifier = has_ctrl || input.modifiers.contains(KeyModifiers::ALT);
         if matches!(self.active_txt, ActiveText::Tags)
-            && has_ctrl
+            && has_word_modifier
             && matches!(
                 input.key_code,
                 KeyCode::Backspace | KeyCode::Char('w') | KeyCode::Char('W')
@@ -526,6 +579,33 @@ impl EntryPopup<'_> {
             }
         }
 
+        // Same shape for the category overlay.
+        if self.category_suggestions.is_some() && matches!(self.active_txt, ActiveText::Category) {
+            match input.key_code {
+                KeyCode::Down => {
+                    if let Some(state) = self.category_suggestions.as_mut() {
+                        state.move_down();
+                    }
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Up => {
+                    if let Some(state) = self.category_suggestions.as_mut() {
+                        state.move_up();
+                    }
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Tab | KeyCode::Enter => {
+                    self.apply_selected_category();
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Esc => {
+                    self.category_suggestions = None;
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                _ => {}
+            }
+        }
+
         let result: anyhow::Result<EntryPopupInputReturn> = match input.key_code {
             KeyCode::Esc => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Char('c') if has_ctrl => Ok(EntryPopupInputReturn::Cancel),
@@ -534,7 +614,8 @@ impl EntryPopup<'_> {
                 self.active_txt = match self.active_txt {
                     ActiveText::Title => ActiveText::Date,
                     ActiveText::Date => ActiveText::Priority,
-                    ActiveText::Priority => ActiveText::Tags,
+                    ActiveText::Priority => ActiveText::Category,
+                    ActiveText::Category => ActiveText::Tags,
                     ActiveText::Tags => ActiveText::Title,
                 };
                 Ok(EntryPopupInputReturn::KeepPopup)
@@ -544,7 +625,8 @@ impl EntryPopup<'_> {
                     ActiveText::Title => ActiveText::Tags,
                     ActiveText::Date => ActiveText::Title,
                     ActiveText::Priority => ActiveText::Date,
-                    ActiveText::Tags => ActiveText::Priority,
+                    ActiveText::Category => ActiveText::Priority,
+                    ActiveText::Tags => ActiveText::Category,
                 };
                 Ok(EntryPopupInputReturn::KeepPopup)
             }
@@ -584,12 +666,18 @@ impl EntryPopup<'_> {
                             self.validate_priority();
                         }
                     }
+                    ActiveText::Category => {
+                        if self.category_txt.input(KeyEvent::from(input)) {
+                            self.validate_category();
+                        }
+                    }
                 }
                 Ok(EntryPopupInputReturn::KeepPopup)
             }
         };
 
         self.recompute_tag_suggestions(app);
+        self.recompute_category_suggestions(app);
         result
     }
 
@@ -602,7 +690,22 @@ impl EntryPopup<'_> {
         let (_, col) = self.tags_txt.cursor();
         let query = tags_autocomplete::extract_active_query(&line, col);
         let tags = app.get_all_tags();
-        self.tag_suggestions = tags_autocomplete::SuggestionState::build(query, &tags);
+        self.tag_suggestions = fuzzy_suggestions::SuggestionState::build(query, &tags, false);
+    }
+
+    fn recompute_category_suggestions<D: DataProvider>(&mut self, app: &App<D>) {
+        if !matches!(self.active_txt, ActiveText::Category) {
+            self.category_suggestions = None;
+            return;
+        }
+        let line = self
+            .category_txt
+            .lines()
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        let categories = crate::app::categories::ordered_categories(&app.entries);
+        self.category_suggestions = category_autocomplete::build_state(&line, &categories);
     }
 
     fn delete_tag_at_cursor(&mut self) {
@@ -624,7 +727,7 @@ impl EntryPopup<'_> {
         let Some(state) = &self.tag_suggestions else {
             return;
         };
-        let Some(tag) = state.selected_tag().map(str::to_owned) else {
+        let Some(tag) = state.selected_value().map(str::to_owned) else {
             return;
         };
         let line = self.tags_txt.lines().first().cloned().unwrap_or_default();
@@ -650,6 +753,20 @@ impl EntryPopup<'_> {
         self.tags_txt = new_tags;
         self.tag_suggestions = None;
         self.validate_tags();
+    }
+
+    fn apply_selected_category(&mut self) {
+        let Some(state) = &self.category_suggestions else {
+            return;
+        };
+        let Some(value) = state.selected_value().map(str::to_owned) else {
+            return;
+        };
+        let mut new_field = TextArea::new(vec![value.clone()]);
+        new_field.move_cursor(CursorMove::End);
+        self.category_txt = new_field;
+        self.category_suggestions = None;
+        self.validate_category();
     }
 
     pub fn handle_tags_popup_input(&mut self, input: &Input) {
@@ -702,17 +819,25 @@ impl EntryPopup<'_> {
             num => Some(num.parse().expect("Priority must be validated before")),
         };
 
+        let category = self
+            .category_txt
+            .lines()
+            .first()
+            .map(|l| l.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| backend::DEFAULT_CATEGORY.to_owned());
+
         if self.is_edit_entry {
-            app.update_current_entry_attributes(title, date, tags, priority)
+            app.update_current_entry_attributes(title, date, tags, priority, category)
                 .await?;
             Ok(EntryPopupInputReturn::UpdateCurrentEntry)
         } else {
             let entry_id = match self.template_content.take() {
                 Some(content) if !content.is_empty() => {
-                    app.add_entry_with_content(title, date, tags, priority, content)
+                    app.add_entry_with_content(title, date, tags, priority, category, content)
                         .await?
                 }
-                _ => app.add_entry(title, date, tags, priority).await?,
+                _ => app.add_entry(title, date, tags, priority, category).await?,
             };
             Ok(EntryPopupInputReturn::AddEntry(entry_id))
         }

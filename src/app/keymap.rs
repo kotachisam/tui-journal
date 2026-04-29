@@ -241,6 +241,14 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::SyncNotion,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('['), KeyModifiers::NONE),
+            UICommand::CycleViewCategoryPrev,
+        ),
+        Keymap::new(
+            Input::new(KeyCode::Char(']'), KeyModifiers::NONE),
+            UICommand::CycleViewCategoryNext,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Home, KeyModifiers::NONE),
             UICommand::GoToTopEntry,
         ),

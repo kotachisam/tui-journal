@@ -11,7 +11,13 @@ async fn add() {
     let added_title = "Added";
 
     let id = app
-        .add_entry(added_title.into(), DateTime::default(), vec![], None)
+        .add_entry(
+            added_title.into(),
+            DateTime::default(),
+            vec![],
+            None,
+            "journal".into(),
+        )
         .await
         .unwrap();
 
@@ -76,6 +82,7 @@ async fn update_attributes() {
         current.date,
         current.tags.to_owned(),
         current.priority,
+        current.category.clone(),
     )
     .await
     .unwrap();

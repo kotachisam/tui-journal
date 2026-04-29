@@ -76,6 +76,7 @@ impl DataProvider for SqliteDataProvide {
     async fn load_all_entries(&self) -> anyhow::Result<Vec<Entry>> {
         let entries: Vec<EntryIntermediate> = sqlx::query_as(
             r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
+                entries.category,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
                 entries.updated_at, entries.source_last_edited_at,
                 GROUP_CONCAT(tags.tag) AS tags
@@ -100,17 +101,18 @@ impl DataProvider for SqliteDataProvide {
 
         let row = sqlx::query(
             r"INSERT INTO entries (
-                title, date, content, priority,
+                title, date, content, priority, category,
                 sync_provider, external_id, last_synced_at, deleted_at,
                 updated_at, source_last_edited_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id",
         )
         .bind(&entry.title)
         .bind(entry.date)
         .bind(&entry.content)
         .bind(entry.priority)
+        .bind(&entry.category)
         .bind(&entry.sync_provider)
         .bind(&entry.external_id)
         .bind(entry.last_synced_at)
@@ -184,18 +186,20 @@ impl DataProvider for SqliteDataProvide {
                 date = $2,
                 content = $3,
                 priority = $4,
-                sync_provider = $5,
-                external_id = $6,
-                last_synced_at = $7,
-                deleted_at = $8,
-                updated_at = $9,
-                source_last_edited_at = $10
-            WHERE id = $11",
+                category = $5,
+                sync_provider = $6,
+                external_id = $7,
+                last_synced_at = $8,
+                deleted_at = $9,
+                updated_at = $10,
+                source_last_edited_at = $11
+            WHERE id = $12",
         )
         .bind(&entry.title)
         .bind(entry.date)
         .bind(&entry.content)
         .bind(entry.priority)
+        .bind(&entry.category)
         .bind(&entry.sync_provider)
         .bind(&entry.external_id)
         .bind(entry.last_synced_at)
@@ -258,6 +262,7 @@ impl DataProvider for SqliteDataProvide {
 
         let sql = format!(
             r"SELECT entries.id, entries.title, entries.date, entries.content, entries.priority,
+                entries.category,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
                 entries.updated_at, entries.source_last_edited_at,
                 GROUP_CONCAT(tags.tag) AS tags

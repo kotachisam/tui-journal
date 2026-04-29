@@ -391,7 +391,11 @@ impl UIComponents<'_> {
                         }
                         TemplatePopupReturn::Apply(template) => {
                             self.popup_stack.pop().expect("popup stack isn't empty");
-                            let entry_popup = EntryPopup::from_template(&template, &app.settings);
+                            let entry_popup = EntryPopup::from_template(
+                                &template,
+                                &app.settings,
+                                &app.view_category,
+                            );
                             self.popup_stack.push(Popup::Entry(Box::new(entry_popup)));
                         }
                     },

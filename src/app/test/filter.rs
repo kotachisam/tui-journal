@@ -125,12 +125,24 @@ async fn cycle_tag_no_tags() {
     // Check empty app doesn't panic
     app.cycle_tags_in_filter();
 
-    app.add_entry("Title_1".into(), Utc::now(), Vec::new(), Some(1))
-        .await
-        .unwrap();
-    app.add_entry("Title_2".into(), Utc::now(), Vec::new(), Some(2))
-        .await
-        .unwrap();
+    app.add_entry(
+        "Title_1".into(),
+        Utc::now(),
+        Vec::new(),
+        Some(1),
+        "journal".into(),
+    )
+    .await
+    .unwrap();
+    app.add_entry(
+        "Title_2".into(),
+        Utc::now(),
+        Vec::new(),
+        Some(2),
+        "journal".into(),
+    )
+    .await
+    .unwrap();
 
     // No panic on cycle with not tags
     app.cycle_tags_in_filter();
@@ -229,6 +241,7 @@ async fn cycle_tag_existing_filter() {
         Utc::now(),
         vec!["New".into(), "Other".into()],
         Some(55),
+        "journal".into(),
     )
     .await
     .unwrap();

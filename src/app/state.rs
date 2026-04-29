@@ -9,10 +9,26 @@ use crate::settings::Settings;
 
 const STATE_FILE_NAME: &str = "state.json";
 
-#[derive(Debug, Serialize, Deserialize, Default)]
+fn default_view_category() -> String {
+    backend::DEFAULT_CATEGORY.to_owned()
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct AppState {
     pub sorter: Sorter,
     pub full_screen: bool,
+    #[serde(default = "default_view_category")]
+    pub last_view_category: String,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            sorter: Sorter::default(),
+            full_screen: false,
+            last_view_category: default_view_category(),
+        }
+    }
 }
 
 impl AppState {
@@ -193,6 +209,7 @@ mod tests {
         let state = AppState {
             sorter,
             full_screen: true,
+            last_view_category: default_view_category(),
         };
 
         state.save(&settings).unwrap();

@@ -99,6 +99,14 @@ pub struct EntryRevision {
     pub saved_at: DateTime<Utc>,
 }
 
+/// The default category for entries that don't have one set (e.g., loaded
+/// from a pre-category JSON file or an unmigrated DB row).
+pub const DEFAULT_CATEGORY: &str = "journal";
+
+fn default_category() -> String {
+    DEFAULT_CATEGORY.to_owned()
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entry {
     pub id: u32,
@@ -109,6 +117,8 @@ pub struct Entry {
     pub tags: Vec<String>,
     #[serde(default)]
     pub priority: Option<u32>,
+    #[serde(default = "default_category")]
+    pub category: String,
     #[serde(default)]
     pub sync_provider: Option<String>,
     #[serde(default)]
@@ -140,6 +150,7 @@ impl Entry {
             content,
             tags,
             priority,
+            category: default_category(),
             sync_provider: None,
             external_id: None,
             last_synced_at: None,
@@ -157,6 +168,7 @@ impl Entry {
             content: draft.content,
             tags: draft.tags,
             priority: draft.priority,
+            category: draft.category,
             sync_provider: draft.sync_provider,
             external_id: draft.external_id,
             last_synced_at: draft.last_synced_at,
@@ -174,6 +186,8 @@ pub struct EntryDraft {
     pub content: String,
     pub tags: Vec<String>,
     pub priority: Option<u32>,
+    #[serde(default = "default_category")]
+    pub category: String,
     #[serde(default)]
     pub sync_provider: Option<String>,
     #[serde(default)]
@@ -202,6 +216,7 @@ impl EntryDraft {
             content,
             tags,
             priority,
+            category: default_category(),
             sync_provider: None,
             external_id: None,
             last_synced_at: None,
@@ -217,6 +232,12 @@ impl EntryDraft {
         self
     }
 
+    #[must_use]
+    pub fn with_category(mut self, category: String) -> Self {
+        self.category = category;
+        self
+    }
+
     pub fn from_entry(entry: Entry) -> Self {
         Self {
             date: entry.date,
@@ -224,6 +245,7 @@ impl EntryDraft {
             content: entry.content,
             tags: entry.tags,
             priority: entry.priority,
+            category: entry.category,
             sync_provider: entry.sync_provider,
             external_id: entry.external_id,
             last_synced_at: entry.last_synced_at,
@@ -265,6 +287,7 @@ mod tests {
             content: String::from("Body"),
             tags: vec![String::from("one"), String::from("two")],
             priority: Some(3),
+            category: default_category(),
             sync_provider: None,
             external_id: None,
             last_synced_at: None,

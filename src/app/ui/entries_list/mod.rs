@@ -1,19 +1,20 @@
 use ratatui::{
     Frame,
-    layout::{Alignment, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::Margin,
-    style::Style,
+    style::{Modifier, Style},
     symbols,
     text::{Line, Span},
     widgets::{
         Block, Borders, List, ListItem, ListState, Paragraph, Scrollbar, ScrollbarOrientation,
-        ScrollbarState, Wrap,
+        ScrollbarState, Tabs, Wrap,
     },
 };
 
 use backend::DataProvider;
 
 use crate::app::App;
+use crate::app::categories;
 use crate::{
     app::keymap::Keymap,
     settings::{DatumVisibility, TagVisibility},
@@ -282,14 +283,51 @@ impl EntriesList {
         list_keymaps: &[Keymap],
         styles: &Styles,
     ) {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(1)].as_ref())
+            .split(area);
+
+        self.render_category_tabs(frame, chunks[0], app);
+
+        let list_area = chunks[1];
         if app.get_active_entries().next().is_none() {
-            self.render_place_holder(frame, area, list_keymaps, app.filter.is_some(), styles);
+            self.render_place_holder(frame, list_area, list_keymaps, app.filter.is_some(), styles);
         } else {
-            self.render_list(frame, app, area, styles);
+            self.render_list(frame, app, list_area, styles);
         }
+    }
+
+    fn render_category_tabs<D: DataProvider>(&self, frame: &mut Frame, area: Rect, app: &App<D>) {
+        let cats = categories::ordered_categories(&app.entries);
+        let active_idx = cats
+            .iter()
+            .position(|c| c == &app.view_category)
+            .unwrap_or(0);
+
+        let titles: Vec<Line> = cats
+            .iter()
+            .map(|c| Line::from(format!(" {} ", capitalize(c))))
+            .collect();
+
+        let tabs = Tabs::new(titles)
+            .block(Block::default().borders(Borders::ALL).title("Categories"))
+            .select(active_idx)
+            .style(Style::default())
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+
+        frame.render_widget(tabs, area);
     }
 
     pub fn set_active(&mut self, active: bool) {
         self.is_active = active;
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
     }
 }

@@ -71,9 +71,15 @@ async fn test_data_provider_errors() {
     assert!(app.get_entry(0).is_none());
     assert!(app.get_all_tags().is_empty());
     assert!(
-        app.add_entry("title".into(), Utc::now(), Vec::new(), Some(1))
-            .await
-            .is_err()
+        app.add_entry(
+            "title".into(),
+            Utc::now(),
+            Vec::new(),
+            Some(1),
+            "journal".into()
+        )
+        .await
+        .is_err()
     );
     assert!(app.delete_entry(0).await.is_err());
     assert!(app.get_current_entry().is_none());
@@ -100,9 +106,15 @@ async fn test_add_entry() {
     let title = String::from("Added Title");
     let date = Utc::now();
 
-    app.add_entry(title.clone(), date, vec![tag.clone()], Some(1))
-        .await
-        .unwrap();
+    app.add_entry(
+        title.clone(),
+        date,
+        vec![tag.clone()],
+        Some(1),
+        "journal".into(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(app.get_active_entries().count(), 3);
     let added_entry = app.get_active_entries().find(|e| e.id == 2).unwrap();
@@ -163,9 +175,15 @@ async fn add_extra_entries_drafts(app: &mut App<MockDataProvider>) {
     ];
 
     for draft in drafts {
-        app.add_entry(draft.title, draft.date, draft.tags, draft.priority)
-            .await
-            .unwrap();
+        app.add_entry(
+            draft.title,
+            draft.date,
+            draft.tags,
+            draft.priority,
+            draft.category,
+        )
+        .await
+        .unwrap();
     }
 }
 

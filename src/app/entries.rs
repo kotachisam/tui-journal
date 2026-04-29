@@ -17,11 +17,13 @@ impl<D> App<D>
 where
     D: DataProvider,
 {
-    /// Get entries that meet the filter criteria if any otherwise it returns all entries
+    /// Get entries that meet the filter criteria (if any) AND match the
+    /// currently-active category tab.
     pub fn get_active_entries(&self) -> impl DoubleEndedIterator<Item = &Entry> {
         self.entries
             .iter()
             .filter(|entry| !self.filtered_out_entries.contains(&entry.id))
+            .filter(|entry| entry.category == self.view_category)
     }
 
     pub fn get_entry(&self, entry_id: u32) -> Option<&Entry> {
@@ -142,9 +144,18 @@ where
         date: DateTime<Utc>,
         tags: Vec<String>,
         priority: Option<u32>,
+        category: String,
     ) -> anyhow::Result<u32> {
-        self.add_entry_intern(title, date, tags, priority, None, HistoryStack::Undo)
-            .await
+        self.add_entry_intern(
+            title,
+            date,
+            tags,
+            priority,
+            category,
+            None,
+            HistoryStack::Undo,
+        )
+        .await
     }
 
     pub async fn add_entry_with_content(
@@ -153,6 +164,7 @@ where
         date: DateTime<Utc>,
         tags: Vec<String>,
         priority: Option<u32>,
+        category: String,
         content: String,
     ) -> anyhow::Result<u32> {
         self.add_entry_intern(
@@ -160,6 +172,7 @@ where
             date,
             tags,
             priority,
+            category,
             Some(content),
             HistoryStack::Undo,
         )
@@ -168,18 +181,20 @@ where
 
     /// Creates an [`Entry`] from the given arguments, registering the change to the provided
     /// [`HistoryStack`].
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn add_entry_intern(
         &mut self,
         title: String,
         date: DateTime<Utc>,
         tags: Vec<String>,
         priority: Option<u32>,
+        category: String,
         content: Option<String>,
         history_target: HistoryStack,
     ) -> anyhow::Result<u32> {
         log::trace!("Adding entry");
 
-        let mut draft = EntryDraft::new(date, title, tags, priority);
+        let mut draft = EntryDraft::new(date, title, tags, priority).with_category(category);
         if let Some(content) = content {
             draft = draft.with_content(content);
         }
@@ -212,6 +227,7 @@ where
         date: DateTime<Utc>,
         tags: Vec<String>,
         priority: Option<u32>,
+        category: String,
     ) -> anyhow::Result<()> {
         let current_entry_id = self
             .current_entry_id
@@ -222,6 +238,7 @@ where
             date,
             tags,
             priority,
+            category,
             HistoryStack::Undo,
         )
         .await
@@ -229,6 +246,7 @@ where
 
     /// Updates the attributes of the given [`Entry`], registering its state before the change on
     /// the given [`HistoryStack`]
+    #[allow(clippy::too_many_arguments)]
     pub(super) async fn update_entry_attributes(
         &mut self,
         entry_id: u32,
@@ -236,6 +254,7 @@ where
         date: DateTime<Utc>,
         tags: Vec<String>,
         priority: Option<u32>,
+        category: String,
         history_target: HistoryStack,
     ) -> anyhow::Result<()> {
         log::trace!("Updating entry");
@@ -250,6 +269,7 @@ where
         entry.date = date;
         entry.tags = tags;
         entry.priority = priority;
+        entry.category = category;
         entry.updated_at = Some(Utc::now());
 
         let clone = entry.clone();

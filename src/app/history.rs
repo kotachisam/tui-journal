@@ -113,6 +113,7 @@ pub struct EntryAttributes {
     pub title: String,
     pub tags: Vec<String>,
     pub priority: Option<u32>,
+    pub category: String,
 }
 
 impl From<&Entry> for EntryAttributes {
@@ -123,6 +124,7 @@ impl From<&Entry> for EntryAttributes {
             title: entry.title.to_owned(),
             tags: entry.tags.to_owned(),
             priority: entry.priority.to_owned(),
+            category: entry.category.clone(),
         }
     }
 }

@@ -1,49 +1,9 @@
-use fuzzy_matcher::{FuzzyMatcher, skim::SkimMatcherV2};
-
-const MAX_SUGGESTIONS: usize = 8;
-
-pub struct SuggestionState {
-    matches: Vec<(i64, String)>,
-    selected: usize,
-}
-
-impl SuggestionState {
-    pub fn build(query: &str, tags: &[String]) -> Option<Self> {
-        let matches = compute_matches(query, tags);
-        if matches.is_empty() {
-            None
-        } else {
-            Some(Self {
-                matches,
-                selected: 0,
-            })
-        }
-    }
-
-    pub fn matches(&self) -> &[(i64, String)] {
-        &self.matches
-    }
-
-    pub fn selected_index(&self) -> usize {
-        self.selected
-    }
-
-    pub fn selected_tag(&self) -> Option<&str> {
-        self.matches.get(self.selected).map(|(_, tag)| tag.as_str())
-    }
-
-    pub fn move_down(&mut self) {
-        if self.selected + 1 < self.matches.len() {
-            self.selected += 1;
-        }
-    }
-
-    pub fn move_up(&mut self) {
-        if self.selected > 0 {
-            self.selected -= 1;
-        }
-    }
-}
+//! Tag-specific helpers for the entry popup's tags-field autocomplete.
+//!
+//! The fuzzy matching, navigation state, and overlay render all live in
+//! `super::fuzzy_suggestions`. This module owns the tag-specific string
+//! operations: detecting the "active query" inside a comma-separated list,
+//! splicing in a selected tag, and one-shot deletion of the current tag.
 
 /// Converts a character-index cursor (as returned by `TextArea::cursor`) into
 /// a byte index into `line`. Necessary because tags can contain emoji, where
@@ -146,41 +106,9 @@ pub fn delete_tag_at_cursor(line: &str, cursor: usize) -> Option<(String, usize)
     Some((new_line, new_cursor_char))
 }
 
-fn compute_matches(query: &str, tags: &[String]) -> Vec<(i64, String)> {
-    if query.is_empty() {
-        return Vec::new();
-    }
-    let matcher = SkimMatcherV2::default();
-    let mut scored: Vec<(i64, String)> = tags
-        .iter()
-        .filter_map(|tag| {
-            matcher
-                .fuzzy_match(tag, query)
-                .map(|score| (score, tag.clone()))
-        })
-        .collect();
-    scored.sort_by_key(|m| std::cmp::Reverse(m.0));
-    scored.truncate(MAX_SUGGESTIONS);
-    scored
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn sample_tags() -> Vec<String> {
-        vec![
-            "✅ Productive".to_owned(),
-            "🪞 Reflective".to_owned(),
-            "🪨 Grounded".to_owned(),
-            "🤝 Connected".to_owned(),
-            "🟢 Aligned".to_owned(),
-            "🌫️ Uncertain".to_owned(),
-            "🧠 Curious".to_owned(),
-            "🎨 Creative".to_owned(),
-            "📝 Post".to_owned(),
-        ]
-    }
 
     #[test]
     fn extract_query_with_no_comma() {
@@ -202,16 +130,7 @@ mod tests {
     fn active_query_start_handles_multibyte_emoji() {
         let line = "✅ Productive, ⚡ En";
         let cursor = line.chars().count();
-        // The active query starts at the byte index of `⚡`, which is 16
-        // (after `✅` (3 bytes) + ` Productive, ` (13 bytes)).
         assert_eq!(active_query_start(line, cursor), 16);
-    }
-
-    #[test]
-    fn char_to_byte_clamps_when_out_of_bounds() {
-        let line = "abc";
-        // char_idx beyond the string length clamps to line.len() (3).
-        assert_eq!(char_index_to_byte_index(line, 99), 3);
     }
 
     #[test]
@@ -235,7 +154,6 @@ mod tests {
     #[test]
     fn extract_query_handles_cursor_in_middle() {
         let line = "tag1, prod, tag3";
-        // Cursor right after "prod"
         assert_eq!(extract_active_query(line, 10), "prod");
     }
 
@@ -248,74 +166,17 @@ mod tests {
     #[test]
     fn active_query_start_after_comma_and_whitespace() {
         let line = "tag1,  prod";
-        // Last comma at index 4, then 2 whitespace chars; query starts at 7
         assert_eq!(active_query_start(line, line.len()), 7);
     }
 
     #[test]
-    fn compute_matches_finds_productive_from_partial() {
-        let tags = sample_tags();
-        let matches = compute_matches("prod", &tags);
-        assert!(!matches.is_empty(), "should match Productive");
-        assert_eq!(matches[0].1, "✅ Productive");
-    }
-
-    #[test]
-    fn compute_matches_finds_reflective_from_partial() {
-        let tags = sample_tags();
-        let matches = compute_matches("ref", &tags);
-        assert!(!matches.is_empty(), "should match Reflective");
-        assert_eq!(matches[0].1, "🪞 Reflective");
-    }
-
-    #[test]
-    fn compute_matches_returns_empty_for_no_matches() {
-        let tags = sample_tags();
-        let matches = compute_matches("zzznoresult", &tags);
-        assert!(matches.is_empty());
-    }
-
-    #[test]
-    fn compute_matches_returns_empty_for_empty_query() {
-        let tags = sample_tags();
-        let matches = compute_matches("", &tags);
-        assert!(matches.is_empty());
-    }
-
-    #[test]
-    fn compute_matches_caps_at_eight() {
-        let tags: Vec<String> = (0..50).map(|i| format!("tag-{i}")).collect();
-        let matches = compute_matches("tag", &tags);
-        assert!(matches.len() <= MAX_SUGGESTIONS);
-    }
-
-    #[test]
-    fn suggestion_state_starts_with_zero_selected() {
-        let tags = sample_tags();
-        let state = SuggestionState::build("prod", &tags).expect("should match");
-        assert_eq!(state.selected_index(), 0);
-    }
-
-    #[test]
-    fn suggestion_state_returns_none_when_no_matches() {
-        let tags = sample_tags();
-        assert!(SuggestionState::build("zzznoresult", &tags).is_none());
-    }
-
-    #[test]
-    fn suggestion_state_move_down_clamps_at_end() {
-        let tags = sample_tags();
-        let mut state = SuggestionState::build("e", &tags).expect("should match");
-        let count = state.matches().len();
-        for _ in 0..(count + 5) {
-            state.move_down();
-        }
-        assert_eq!(state.selected_index(), count - 1);
+    fn char_to_byte_clamps_when_out_of_bounds() {
+        let line = "abc";
+        assert_eq!(char_index_to_byte_index(line, 99), 3);
     }
 
     #[test]
     fn delete_tag_removes_last_after_trailing_comma() {
-        // "Tab-inserted then changed mind" case
         let line = "✅ Productive, ⚡ Energised, ";
         let cursor = line.chars().count();
         let (new_line, new_cursor) = delete_tag_at_cursor(line, cursor).unwrap();
@@ -326,7 +187,7 @@ mod tests {
     #[test]
     fn delete_tag_removes_middle() {
         let line = "a, b, c";
-        let cursor_byte = 4; // inside " b"
+        let cursor_byte = 4;
         let cursor = line[..cursor_byte].chars().count();
         let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
         assert_eq!(new_line, "a, c");
@@ -365,21 +226,9 @@ mod tests {
     #[test]
     fn delete_tag_handles_multibyte_in_middle() {
         let line = "a, ⚡ Energised, c";
-        // Cursor right after "Energised" — inside the middle tag
         let cursor_byte = "a, ⚡ Energised".len();
         let cursor = line[..cursor_byte].chars().count();
         let (new_line, _) = delete_tag_at_cursor(line, cursor).unwrap();
         assert_eq!(new_line, "a, c");
-    }
-
-    #[test]
-    fn suggestion_state_move_up_clamps_at_zero() {
-        let tags = sample_tags();
-        let mut state = SuggestionState::build("e", &tags).expect("should match");
-        state.move_down();
-        for _ in 0..10 {
-            state.move_up();
-        }
-        assert_eq!(state.selected_index(), 0);
     }
 }

@@ -5,6 +5,7 @@ use colored_tags::ColoredTagsManager;
 use history::HistoryManager;
 use std::collections::HashSet;
 
+pub mod categories;
 mod colored_tags;
 mod entries;
 mod external_editor;
@@ -46,6 +47,9 @@ where
     /// loop returns.
     pub should_push_on_exit: bool,
     pub last_search_query: Option<String>,
+    /// The currently-active category tab in the entries list ("journal",
+    /// "post", etc.). Persisted across sessions via AppState.
+    pub view_category: String,
     state: AppState,
     /// Keeps history of the changes on entries, enabling undo & redo operations
     history: HistoryManager,
@@ -74,6 +78,7 @@ where
             filter: None,
             should_push_on_exit: false,
             last_search_query: None,
+            view_category: backend::DEFAULT_CATEGORY.to_owned(),
             state: Default::default(),
             history,
             colored_tags,

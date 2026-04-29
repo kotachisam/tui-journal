@@ -141,6 +141,7 @@ where
             }
         };
 
+        self.view_category = state.last_view_category.clone();
         self.state = state;
     }
 

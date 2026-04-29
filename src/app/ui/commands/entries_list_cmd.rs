@@ -128,7 +128,10 @@ pub fn exec_create_entry<D: DataProvider>(
 pub fn create_entry<D: DataProvider>(ui_components: &mut UIComponents, app: &App<D>) {
     ui_components
         .popup_stack
-        .push(Popup::Entry(Box::new(EntryPopup::new_entry(&app.settings))));
+        .push(Popup::Entry(Box::new(EntryPopup::new_entry(
+            &app.settings,
+            &app.view_category,
+        ))));
 }
 
 pub async fn continue_create_entry<D: DataProvider>(
@@ -509,6 +512,14 @@ pub async fn continue_fuzzy_find<D: DataProvider>(
 
 pub fn exec_toggle_full_screen_mode<D: DataProvider>(app: &mut App<D>) -> CmdResult {
     app.state.full_screen = !app.state.full_screen;
+    Ok(HandleInputReturnType::Handled)
+}
+
+pub fn exec_cycle_view_category<D: DataProvider>(app: &mut App<D>, step: i32) -> CmdResult {
+    let categories = crate::app::categories::ordered_categories(&app.entries);
+    let next = crate::app::categories::cycle_category(&categories, &app.view_category, step);
+    app.view_category = next.clone();
+    app.state.last_view_category = next;
     Ok(HandleInputReturnType::Handled)
 }
 

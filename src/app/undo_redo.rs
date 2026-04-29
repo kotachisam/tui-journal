@@ -42,6 +42,7 @@ where
                         entry.date,
                         entry.tags,
                         entry.priority,
+                        entry.category,
                         Some(entry.content),
                         history_target,
                     )
@@ -57,6 +58,7 @@ where
                     attr.date,
                     attr.tags,
                     attr.priority,
+                    attr.category,
                     history_target,
                 )
                 .await?;
