@@ -33,7 +33,12 @@ impl From<EntryIntermediate> for Entry {
             category: value.category,
             tags: value
                 .tags
-                .map(|tags| tags.split_terminator(',').map(String::from).collect())
+                .map(|tags| {
+                    tags.split(',')
+                        .map(|t| t.trim().to_owned())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default(),
             sync_provider: value.sync_provider,
             external_id: value.external_id,
@@ -89,7 +94,12 @@ impl From<RevisionRow> for EntryRevision {
             priority: value.priority,
             tags: value
                 .tags
-                .map(|tags| tags.split_terminator(',').map(String::from).collect())
+                .map(|tags| {
+                    tags.split(',')
+                        .map(|t| t.trim().to_owned())
+                        .filter(|t| !t.is_empty())
+                        .collect()
+                })
                 .unwrap_or_default(),
             saved_at: value.saved_at,
         }
@@ -139,5 +149,19 @@ mod tests {
         let entry: Entry = sample_intermediate(Some("")).into();
 
         assert!(entry.tags.is_empty());
+    }
+
+    #[test]
+    fn empty_segments_are_filtered() {
+        let entry: Entry = sample_intermediate(Some("rust,,tests,")).into();
+
+        assert_eq!(entry.tags, vec!["rust", "tests"]);
+    }
+
+    #[test]
+    fn whitespace_only_segments_are_filtered() {
+        let entry: Entry = sample_intermediate(Some("rust, , tests")).into();
+
+        assert_eq!(entry.tags, vec!["rust", "tests"]);
     }
 }

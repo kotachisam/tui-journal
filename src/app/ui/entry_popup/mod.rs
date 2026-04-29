@@ -690,7 +690,7 @@ impl EntryPopup<'_> {
         let (_, col) = self.tags_txt.cursor();
         let query = tags_autocomplete::extract_active_query(&line, col);
         let tags = app.get_all_tags();
-        self.tag_suggestions = fuzzy_suggestions::SuggestionState::build(query, &tags, false);
+        self.tag_suggestions = fuzzy_suggestions::SuggestionState::build(query, &tags, true);
     }
 
     fn recompute_category_suggestions<D: DataProvider>(&mut self, app: &App<D>) {
@@ -849,7 +849,53 @@ fn tags_to_text(tags: &[String]) -> String {
 }
 
 fn text_to_tags(text: &str) -> Vec<String> {
-    text.split_terminator(',')
-        .map(|tag| String::from(tag.trim()))
+    text.split(',')
+        .map(|tag| tag.trim().to_owned())
+        .filter(|tag| !tag.is_empty())
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{tags_to_text, text_to_tags};
+
+    #[test]
+    fn text_to_tags_strips_trailing_comma_space() {
+        assert_eq!(text_to_tags("post, "), vec!["post"]);
+    }
+
+    #[test]
+    fn text_to_tags_strips_trailing_comma_only() {
+        assert_eq!(text_to_tags("post,"), vec!["post"]);
+    }
+
+    #[test]
+    fn text_to_tags_skips_double_commas() {
+        assert_eq!(text_to_tags("a,,b"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn text_to_tags_skips_leading_comma() {
+        assert_eq!(text_to_tags(",a,b"), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn text_to_tags_handles_only_commas_and_whitespace() {
+        assert!(text_to_tags(", , ,").is_empty());
+    }
+
+    #[test]
+    fn text_to_tags_preserves_emoji_prefixed_tags() {
+        assert_eq!(
+            text_to_tags("📝 Post, 🧵 Thread, "),
+            vec!["📝 Post", "🧵 Thread"]
+        );
+    }
+
+    #[test]
+    fn tags_to_text_round_trips_through_text_to_tags() {
+        let original = vec!["alpha".to_owned(), "beta".to_owned()];
+        let text = tags_to_text(&original);
+        assert_eq!(text_to_tags(&text), original);
+    }
 }
