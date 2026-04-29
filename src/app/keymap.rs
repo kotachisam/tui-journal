@@ -287,7 +287,7 @@ pub(crate) fn get_editor_mode_keymaps() -> Vec<Keymap> {
         ),
         Keymap::new(
             Input::new(KeyCode::Char('c'), KeyModifiers::CONTROL),
-            UICommand::BackEditorNormalMode,
+            UICommand::CopyOsClipboard,
         ),
         Keymap::new(
             Input::new(KeyCode::Char('['), KeyModifiers::CONTROL),
@@ -303,11 +303,15 @@ pub(crate) fn get_editor_mode_keymaps() -> Vec<Keymap> {
         ),
         Keymap::new(
             Input::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
-            UICommand::CopyOsClipboard,
+            UICommand::PasteOsClipboard,
+        ),
+        Keymap::new(
+            Input::new(KeyCode::Char('y'), KeyModifiers::CONTROL),
+            UICommand::PasteOsClipboard,
         ),
         Keymap::new(
             Input::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
-            UICommand::PasteOsClipboard,
+            UICommand::TogglePreviewMode,
         ),
     ]
 }
