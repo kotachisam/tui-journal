@@ -17,6 +17,7 @@ pub struct Editor<'a> {
     has_unsaved: bool,
     preview_scroll: u16,
     show_preview: bool,
+    last_wrap_width: Option<u16>,
 }
 
 impl<'a> Editor<'a> {
@@ -31,6 +32,7 @@ impl<'a> Editor<'a> {
             has_unsaved: false,
             show_preview: true,
             preview_scroll: 0,
+            last_wrap_width: None,
         }
     }
 

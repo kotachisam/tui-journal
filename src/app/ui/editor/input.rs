@@ -53,6 +53,10 @@ impl Editor<'_> {
                 }
             }
 
+            if self.try_visual_navigation(input) {
+                return Ok(HandleInputReturnType::Handled);
+            }
+
             if self.try_snap_vertical_navigation(input) {
                 return Ok(HandleInputReturnType::Handled);
             }
@@ -263,6 +267,42 @@ impl Editor<'_> {
     }
 
     /// Up on first line / Down on last line snaps to line start/end instead of no-op.
+    fn try_visual_navigation(&mut self, input: &Input) -> bool {
+        if !self.show_preview || !input.modifiers.is_empty() {
+            return false;
+        }
+        let Some(width) = self.last_wrap_width else {
+            return false;
+        };
+        let delta: i32 = match input.key_code {
+            KeyCode::Up => -1,
+            KeyCode::Down => 1,
+            _ => return false,
+        };
+
+        let lines_owned: Vec<String> = self.text_area.lines().to_vec();
+        let lines: Vec<&str> = lines_owned.iter().map(String::as_str).collect();
+        let (cursor_row, cursor_col) = self.text_area.cursor();
+
+        let Some((vrow, vcol)) =
+            super::render::wrapped_cursor_position(&lines, cursor_row, cursor_col, width)
+        else {
+            return false;
+        };
+
+        let target_signed = vrow as i32 + delta;
+        if target_signed < 0 {
+            self.text_area.move_cursor(CursorMove::Top);
+            self.text_area.move_cursor(CursorMove::Head);
+            return true;
+        }
+        let (target_row, target_col) =
+            super::render::visual_to_source(&lines, target_signed as u16, vcol, width);
+        self.text_area
+            .move_cursor(CursorMove::Jump(target_row as u16, target_col as u16));
+        true
+    }
+
     fn try_snap_vertical_navigation(&mut self, input: &Input) -> bool {
         if !input.modifiers.is_empty() || self.is_visual_mode() {
             return false;
