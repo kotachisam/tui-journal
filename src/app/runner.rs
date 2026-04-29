@@ -265,7 +265,7 @@ async fn run_notion_bootstrap<B: Backend, D: DataProvider>(
     provider: &D,
     settings: &NotionSettings,
     force: bool,
-) -> anyhow::Result<crate::notion::bootstrap::BootstrapOutcome> {
+) -> anyhow::Result<crate::notion::BootstrapOutcome> {
     let (tx, mut rx) = unbounded_channel::<SyncProgress>();
     let mut latest = SyncProgress {
         stage: SyncStage::ResolvingDataSource,
