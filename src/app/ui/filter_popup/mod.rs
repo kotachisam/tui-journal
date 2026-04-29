@@ -304,7 +304,8 @@ impl FilterPopup<'_> {
 
         if self.active_control != FilterControl::TagsList {
             match input.key_code {
-                KeyCode::Tab => self.cycle_next_control(),
+                KeyCode::Tab | KeyCode::Down => self.cycle_next_control(),
+                KeyCode::BackTab | KeyCode::Up => self.cycle_prev_control(),
                 KeyCode::Esc => FilterPopupReturn::Cancel,
                 KeyCode::Char('c') if has_control => FilterPopupReturn::Cancel,
                 KeyCode::Enter => self.confirm(),
@@ -332,6 +333,7 @@ impl FilterPopup<'_> {
         } else {
             match input.key_code {
                 KeyCode::Tab => self.cycle_next_control(),
+                KeyCode::BackTab => self.cycle_prev_control(),
                 KeyCode::Char('j') | KeyCode::Down => {
                     self.cycle_next_tag();
                     FilterPopupReturn::KeepPopup
@@ -363,6 +365,17 @@ impl FilterPopup<'_> {
             FilterControl::ContentTxt => FilterControl::PriorityTxt,
             FilterControl::PriorityTxt => FilterControl::TagsList,
             FilterControl::TagsList => FilterControl::TitleTxt,
+        };
+
+        FilterPopupReturn::KeepPopup
+    }
+
+    fn cycle_prev_control(&mut self) -> FilterPopupReturn {
+        self.active_control = match self.active_control {
+            FilterControl::TitleTxt => FilterControl::TagsList,
+            FilterControl::ContentTxt => FilterControl::TitleTxt,
+            FilterControl::PriorityTxt => FilterControl::ContentTxt,
+            FilterControl::TagsList => FilterControl::PriorityTxt,
         };
 
         FilterPopupReturn::KeepPopup
