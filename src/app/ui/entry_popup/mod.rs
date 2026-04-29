@@ -5,7 +5,7 @@ use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Style},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use tui_textarea::{CursorMove, TextArea};
 
@@ -21,6 +21,7 @@ use self::tags::{TagsPopup, TagsPopupReturn};
 use super::{Styles, ui_functions::centered_rect_exact_height};
 
 mod tags;
+mod tags_autocomplete;
 
 const FOOTER_TEXT: &str = "Enter or <Ctrl-m>: confirm | Esc or <Ctrl-c>: Cancel | Tab: Change focused control | <Ctrl-Space> or <Ctrl-t>: Open tags";
 const FOOTER_MARGIN: u16 = 15;
@@ -37,6 +38,7 @@ pub struct EntryPopup<'a> {
     tags_err_msg: String,
     priority_err_msg: String,
     tags_popup: Option<TagsPopup>,
+    tag_suggestions: Option<tags_autocomplete::SuggestionState>,
     /// When set, the confirm path uses this as the new entry's content
     /// instead of creating an empty one. Populated by `from_template`.
     template_content: Option<String>,
@@ -87,6 +89,7 @@ impl EntryPopup<'_> {
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             tags_popup: None,
+            tag_suggestions: None,
             template_content: None,
             date_format: settings.date_format.clone(),
         }
@@ -123,6 +126,7 @@ impl EntryPopup<'_> {
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             tags_popup: None,
+            tag_suggestions: None,
             template_content: Some(template.content.clone()),
             date_format: settings.date_format.clone(),
         };
@@ -158,6 +162,7 @@ impl EntryPopup<'_> {
             tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             tags_popup: None,
+            tag_suggestions: None,
             template_content: None,
             date_format: settings.date_format.clone(),
         };
@@ -355,9 +360,64 @@ impl EntryPopup<'_> {
 
         frame.render_widget(footer, chunks[4]);
 
+        if matches!(self.active_txt, ActiveText::Tags) && self.tag_suggestions.is_some() {
+            self.render_tag_autocomplete(frame, chunks[3]);
+        }
+
         if let Some(tags_popup) = self.tags_popup.as_mut() {
             tags_popup.render_widget(frame, area, styles)
         }
+    }
+
+    fn render_tag_autocomplete(&self, frame: &mut Frame, tags_area: Rect) {
+        let Some(state) = self.tag_suggestions.as_ref() else {
+            return;
+        };
+        let matches = state.matches();
+        if matches.is_empty() {
+            return;
+        }
+
+        let frame_area = frame.area();
+        let desired_height = (matches.len() as u16) + 2;
+        let below_y = tags_area.y + tags_area.height;
+        let space_below = frame_area.height.saturating_sub(below_y);
+
+        let (overlay_y, overlay_height) = if space_below >= desired_height {
+            (below_y, desired_height)
+        } else if tags_area.y >= desired_height {
+            (tags_area.y - desired_height, desired_height)
+        } else {
+            // Tight fit — clip below.
+            (below_y, space_below.max(3).min(desired_height))
+        };
+
+        let overlay_width = tags_area.width.min(60);
+        let overlay_area = Rect {
+            x: tags_area.x,
+            y: overlay_y,
+            width: overlay_width,
+            height: overlay_height,
+        };
+
+        let items: Vec<ListItem> = matches
+            .iter()
+            .map(|(_, tag)| ListItem::new(tag.as_str()))
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Tags — Tab/Enter insert, Esc dismiss"),
+            )
+            .highlight_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
+
+        let mut list_state = ListState::default();
+        list_state.select(Some(state.selected_index()));
+
+        frame.render_widget(Clear, overlay_area);
+        frame.render_stateful_widget(list, overlay_area, &mut list_state);
     }
 
     pub fn is_input_valid(&self) -> bool {
@@ -422,7 +482,36 @@ impl EntryPopup<'_> {
 
         let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
 
-        match input.key_code {
+        // Tag autocomplete overlay intercepts Up/Down/Tab/Enter/Esc when visible
+        // and the user is in the tags field. Other states fall through to the
+        // existing field-cycle / confirm / cancel bindings.
+        if self.tag_suggestions.is_some() && matches!(self.active_txt, ActiveText::Tags) {
+            match input.key_code {
+                KeyCode::Down => {
+                    if let Some(state) = self.tag_suggestions.as_mut() {
+                        state.move_down();
+                    }
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Up => {
+                    if let Some(state) = self.tag_suggestions.as_mut() {
+                        state.move_up();
+                    }
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Tab | KeyCode::Enter => {
+                    self.apply_selected_tag();
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                KeyCode::Esc => {
+                    self.tag_suggestions = None;
+                    return Ok(EntryPopupInputReturn::KeepPopup);
+                }
+                _ => {}
+            }
+        }
+
+        let result: anyhow::Result<EntryPopupInputReturn> = match input.key_code {
             KeyCode::Esc => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Char('c') if has_ctrl => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Enter => self.handle_confirm(app).await,
@@ -483,7 +572,48 @@ impl EntryPopup<'_> {
                 }
                 Ok(EntryPopupInputReturn::KeepPopup)
             }
+        };
+
+        self.recompute_tag_suggestions(app);
+        result
+    }
+
+    fn recompute_tag_suggestions<D: DataProvider>(&mut self, app: &App<D>) {
+        if !matches!(self.active_txt, ActiveText::Tags) {
+            self.tag_suggestions = None;
+            return;
         }
+        let line = self.tags_txt.lines().first().cloned().unwrap_or_default();
+        let (_, col) = self.tags_txt.cursor();
+        let query = tags_autocomplete::extract_active_query(&line, col);
+        let tags = app.get_all_tags();
+        self.tag_suggestions = tags_autocomplete::SuggestionState::build(query, &tags);
+    }
+
+    fn apply_selected_tag(&mut self) {
+        let Some(state) = &self.tag_suggestions else {
+            return;
+        };
+        let Some(tag) = state.selected_tag().map(str::to_owned) else {
+            return;
+        };
+        let line = self.tags_txt.lines().first().cloned().unwrap_or_default();
+        let (_, col) = self.tags_txt.cursor();
+        let start = tags_autocomplete::active_query_start(&line, col);
+        let suffix = ", ";
+
+        let mut new_line = String::with_capacity(line.len() + tag.len() + suffix.len());
+        new_line.push_str(&line[..start]);
+        new_line.push_str(&tag);
+        new_line.push_str(suffix);
+        new_line.push_str(&line[col.min(line.len())..]);
+
+        let new_cursor = start + tag.len() + suffix.len();
+        let mut new_tags = TextArea::new(vec![new_line]);
+        new_tags.move_cursor(CursorMove::Jump(0, new_cursor as u16));
+        self.tags_txt = new_tags;
+        self.tag_suggestions = None;
+        self.validate_tags();
     }
 
     pub fn handle_tags_popup_input(&mut self, input: &Input) {
