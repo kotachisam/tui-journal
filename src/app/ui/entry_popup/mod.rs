@@ -67,31 +67,25 @@ pub enum EntryPopupInputReturn {
     UpdateCurrentEntry,
 }
 
-impl EntryPopup<'_> {
-    pub fn new_entry(settings: &Settings, default_category: &str) -> Self {
-        let title_txt = TextArea::default();
+struct PopupFields<'a> {
+    title_txt: TextArea<'a>,
+    date_txt: TextArea<'a>,
+    tags_txt: TextArea<'a>,
+    priority_txt: TextArea<'a>,
+    category_txt: TextArea<'a>,
+    is_edit_entry: bool,
+    template_content: Option<String>,
+}
 
-        let date = Local::now();
-
-        let date_txt = TextArea::new(vec![settings.date_format.display(&date)]);
-
-        let tags_txt = TextArea::default();
-
-        let priority_txt = if let Some(priority) = settings.default_journal_priority {
-            TextArea::new(vec![priority.to_string()])
-        } else {
-            TextArea::default()
-        };
-
-        let category_txt = TextArea::new(vec![default_category.to_owned()]);
-
+impl<'a> EntryPopup<'a> {
+    fn build(fields: PopupFields<'a>, settings: &Settings) -> Self {
         Self {
-            title_txt,
-            date_txt,
-            tags_txt,
-            priority_txt,
-            category_txt,
-            is_edit_entry: false,
+            title_txt: fields.title_txt,
+            date_txt: fields.date_txt,
+            tags_txt: fields.tags_txt,
+            priority_txt: fields.priority_txt,
+            category_txt: fields.category_txt,
+            is_edit_entry: fields.is_edit_entry,
             active_txt: ActiveText::Title,
             title_err_msg: String::default(),
             date_err_msg: String::default(),
@@ -101,9 +95,29 @@ impl EntryPopup<'_> {
             tags_popup: None,
             tag_suggestions: None,
             category_suggestions: None,
-            template_content: None,
+            template_content: fields.template_content,
             date_format: settings.date_format.clone(),
         }
+    }
+
+    pub fn new_entry(settings: &Settings, default_category: &str) -> Self {
+        let date = Local::now();
+        let priority_txt = match settings.default_journal_priority {
+            Some(priority) => TextArea::new(vec![priority.to_string()]),
+            None => TextArea::default(),
+        };
+        Self::build(
+            PopupFields {
+                title_txt: TextArea::default(),
+                date_txt: TextArea::new(vec![settings.date_format.display(&date)]),
+                tags_txt: TextArea::default(),
+                priority_txt,
+                category_txt: TextArea::new(vec![default_category.to_owned()]),
+                is_edit_entry: false,
+                template_content: None,
+            },
+            settings,
+        )
     }
 
     /// Seeds a new-entry popup from a template. Title, tags, and priority
@@ -111,41 +125,24 @@ impl EntryPopup<'_> {
     /// user before confirming). Date defaults to today. Content is the
     /// template's body.
     pub fn from_template(template: &Template, settings: &Settings, default_category: &str) -> Self {
-        let title_txt = TextArea::new(vec![template.title.clone().unwrap_or_default()]);
-
         let date = Local::now();
-        let date_txt = TextArea::new(vec![settings.date_format.display(&date)]);
-
-        let tags_txt = TextArea::new(vec![tags_to_text(&template.tags)]);
-
         let priority_value = template.priority.or(settings.default_journal_priority);
-        let priority_txt = if let Some(priority) = priority_value {
-            TextArea::new(vec![priority.to_string()])
-        } else {
-            TextArea::default()
+        let priority_txt = match priority_value {
+            Some(priority) => TextArea::new(vec![priority.to_string()]),
+            None => TextArea::default(),
         };
-
-        let category_txt = TextArea::new(vec![default_category.to_owned()]);
-
-        let mut popup = Self {
-            title_txt,
-            date_txt,
-            tags_txt,
-            priority_txt,
-            category_txt,
-            is_edit_entry: false,
-            active_txt: ActiveText::Title,
-            title_err_msg: String::default(),
-            date_err_msg: String::default(),
-            tags_err_msg: String::default(),
-            priority_err_msg: String::default(),
-            category_err_msg: String::default(),
-            tags_popup: None,
-            tag_suggestions: None,
-            category_suggestions: None,
-            template_content: Some(template.content.clone()),
-            date_format: settings.date_format.clone(),
-        };
+        let mut popup = Self::build(
+            PopupFields {
+                title_txt: TextArea::new(vec![template.title.clone().unwrap_or_default()]),
+                date_txt: TextArea::new(vec![settings.date_format.display(&date)]),
+                tags_txt: TextArea::new(vec![tags_to_text(&template.tags)]),
+                priority_txt,
+                category_txt: TextArea::new(vec![default_category.to_owned()]),
+                is_edit_entry: false,
+                template_content: Some(template.content.clone()),
+            },
+            settings,
+        );
         popup.validate_all();
         popup
     }
@@ -154,44 +151,30 @@ impl EntryPopup<'_> {
         let mut title_txt = TextArea::new(vec![entry.title.to_owned()]);
         title_txt.move_cursor(CursorMove::End);
 
-        let date_txt = TextArea::new(vec![settings.date_format.display(&entry.date)]);
-
-        let tags = tags_to_text(&entry.tags);
-
-        let mut tags_txt = TextArea::new(vec![tags]);
+        let mut tags_txt = TextArea::new(vec![tags_to_text(&entry.tags)]);
         tags_txt.move_cursor(CursorMove::End);
 
         let prio = entry.priority.map(|pr| pr.to_string()).unwrap_or_default();
-
         let mut priority_txt = TextArea::new(vec![prio]);
         priority_txt.move_cursor(CursorMove::End);
 
         let mut category_txt = TextArea::new(vec![entry.category.clone()]);
         category_txt.move_cursor(CursorMove::End);
 
-        let mut entry_popup = Self {
-            title_txt,
-            date_txt,
-            tags_txt,
-            priority_txt,
-            category_txt,
-            is_edit_entry: true,
-            active_txt: ActiveText::Title,
-            title_err_msg: String::default(),
-            date_err_msg: String::default(),
-            tags_err_msg: String::default(),
-            priority_err_msg: String::default(),
-            category_err_msg: String::default(),
-            tags_popup: None,
-            tag_suggestions: None,
-            category_suggestions: None,
-            template_content: None,
-            date_format: settings.date_format.clone(),
-        };
-
-        entry_popup.validate_all();
-
-        entry_popup
+        let mut popup = Self::build(
+            PopupFields {
+                title_txt,
+                date_txt: TextArea::new(vec![settings.date_format.display(&entry.date)]),
+                tags_txt,
+                priority_txt,
+                category_txt,
+                is_edit_entry: true,
+                template_content: None,
+            },
+            settings,
+        );
+        popup.validate_all();
+        popup
     }
 
     pub fn render_widget(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
@@ -249,165 +232,48 @@ impl EntryPopup<'_> {
         self.priority_txt.set_cursor_line_style(Style::default());
         self.category_txt.set_cursor_line_style(Style::default());
 
-        let gstyles = &styles.general;
+        let field_styles = FieldStyles::new(styles);
 
-        let active_block_style = Style::from(gstyles.input_block_active);
-        let reset_style = Style::reset();
-        let invalid_block_style = Style::from(gstyles.input_block_invalid);
-
-        let active_cursor_style = Style::from(gstyles.input_cursor_active);
-        let deactivate_cursor_style = Style::default().bg(Color::Reset);
-        let invalid_cursor_style = Style::from(gstyles.input_cursor_invalid);
-
-        if self.title_err_msg.is_empty() {
-            let (block, cursor) = match self.active_txt {
-                ActiveText::Title => (active_block_style, active_cursor_style),
-                _ => (reset_style, deactivate_cursor_style),
-            };
-            self.title_txt.set_style(block);
-            self.title_txt.set_cursor_style(cursor);
-            self.title_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(block)
-                    .title("Title"),
-            );
-        } else {
-            let cursor = if self.active_txt == ActiveText::Title {
-                invalid_cursor_style
-            } else {
-                deactivate_cursor_style
-            };
-
-            self.title_txt.set_style(invalid_block_style);
-            self.title_txt.set_cursor_style(cursor);
-            self.title_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(invalid_block_style)
-                    .title(format!("Title : {}", self.title_err_msg)),
-            );
-        }
-
-        if self.date_err_msg.is_empty() {
-            let (block, cursor) = match self.active_txt {
-                ActiveText::Date => (active_block_style, active_cursor_style),
-                _ => (reset_style, deactivate_cursor_style),
-            };
-            self.date_txt.set_style(block);
-            self.date_txt.set_cursor_style(cursor);
-            self.date_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(block)
-                    .title("Date"),
-            );
-        } else {
-            let cursor = if self.active_txt == ActiveText::Date {
-                invalid_cursor_style
-            } else {
-                deactivate_cursor_style
-            };
-            self.date_txt.set_style(invalid_block_style);
-            self.date_txt.set_cursor_style(cursor);
-            self.date_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(invalid_block_style)
-                    .title(format!("Date : {}", self.date_err_msg)),
-            );
-        }
-
-        if self.tags_err_msg.is_empty() {
-            let (block, cursor, title) = match self.active_txt {
-                ActiveText::Tags => (
-                    active_block_style,
-                    active_cursor_style,
-                    "Tags - comma-separated | <Ctrl-T>: browse existing",
-                ),
-                _ => (reset_style, deactivate_cursor_style, "Tags"),
-            };
-            self.tags_txt.set_style(block);
-            self.tags_txt.set_cursor_style(cursor);
-            self.tags_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(block)
-                    .title(title),
-            );
-        } else {
-            let cursor = if self.active_txt == ActiveText::Tags {
-                invalid_cursor_style
-            } else {
-                deactivate_cursor_style
-            };
-            self.tags_txt.set_style(invalid_block_style);
-            self.tags_txt.set_cursor_style(cursor);
-            self.tags_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(invalid_block_style)
-                    .title(format!("Tags : {}", self.date_err_msg)),
-            );
-        }
-
-        if self.priority_err_msg.is_empty() {
-            let (block, cursor) = match self.active_txt {
-                ActiveText::Priority => (active_block_style, active_cursor_style),
-                _ => (reset_style, deactivate_cursor_style),
-            };
-            self.priority_txt.set_style(block);
-            self.priority_txt.set_cursor_style(cursor);
-            self.priority_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(block)
-                    .title("Priority"),
-            );
-        } else {
-            let cursor = if self.active_txt == ActiveText::Priority {
-                invalid_cursor_style
-            } else {
-                deactivate_cursor_style
-            };
-            self.priority_txt.set_style(invalid_block_style);
-            self.priority_txt.set_cursor_style(cursor);
-            self.priority_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(invalid_block_style)
-                    .title(format!("Priority : {}", self.priority_err_msg)),
-            );
-        }
-
-        if self.category_err_msg.is_empty() {
-            let (block, cursor) = match self.active_txt {
-                ActiveText::Category => (active_block_style, active_cursor_style),
-                _ => (reset_style, deactivate_cursor_style),
-            };
-            self.category_txt.set_style(block);
-            self.category_txt.set_cursor_style(cursor);
-            self.category_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(block)
-                    .title("Category"),
-            );
-        } else {
-            let cursor = if self.active_txt == ActiveText::Category {
-                invalid_cursor_style
-            } else {
-                deactivate_cursor_style
-            };
-            self.category_txt.set_style(invalid_block_style);
-            self.category_txt.set_cursor_style(cursor);
-            self.category_txt.set_block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .style(invalid_block_style)
-                    .title(format!("Category : {}", self.category_err_msg)),
-            );
-        }
+        render_field(
+            &mut self.title_txt,
+            self.active_txt == ActiveText::Title,
+            &self.title_err_msg,
+            "Title",
+            None,
+            &field_styles,
+        );
+        render_field(
+            &mut self.date_txt,
+            self.active_txt == ActiveText::Date,
+            &self.date_err_msg,
+            "Date",
+            None,
+            &field_styles,
+        );
+        render_field(
+            &mut self.tags_txt,
+            self.active_txt == ActiveText::Tags,
+            &self.tags_err_msg,
+            "Tags",
+            Some("Tags - comma-separated | <Ctrl-T>: browse existing"),
+            &field_styles,
+        );
+        render_field(
+            &mut self.priority_txt,
+            self.active_txt == ActiveText::Priority,
+            &self.priority_err_msg,
+            "Priority",
+            None,
+            &field_styles,
+        );
+        render_field(
+            &mut self.category_txt,
+            self.active_txt == ActiveText::Category,
+            &self.category_err_msg,
+            "Category",
+            None,
+            &field_styles,
+        );
 
         frame.render_widget(&self.title_txt, chunks[0]);
         frame.render_widget(&self.date_txt, chunks[1]);
@@ -841,6 +707,73 @@ impl EntryPopup<'_> {
             };
             Ok(EntryPopupInputReturn::AddEntry(entry_id))
         }
+    }
+}
+
+struct FieldStyles {
+    active_block: Style,
+    invalid_block: Style,
+    reset_block: Style,
+    active_cursor: Style,
+    invalid_cursor: Style,
+    deactivate_cursor: Style,
+}
+
+impl FieldStyles {
+    fn new(styles: &Styles) -> Self {
+        let g = &styles.general;
+        Self {
+            active_block: Style::from(g.input_block_active),
+            invalid_block: Style::from(g.input_block_invalid),
+            reset_block: Style::reset(),
+            active_cursor: Style::from(g.input_cursor_active),
+            invalid_cursor: Style::from(g.input_cursor_invalid),
+            deactivate_cursor: Style::default().bg(Color::Reset),
+        }
+    }
+}
+
+fn render_field(
+    txt: &mut TextArea,
+    is_active: bool,
+    err: &str,
+    normal_title: &str,
+    active_title: Option<&str>,
+    styles: &FieldStyles,
+) {
+    if err.is_empty() {
+        let (block_style, cursor_style) = if is_active {
+            (styles.active_block, styles.active_cursor)
+        } else {
+            (styles.reset_block, styles.deactivate_cursor)
+        };
+        let title = if is_active {
+            active_title.unwrap_or(normal_title)
+        } else {
+            normal_title
+        };
+        txt.set_style(block_style);
+        txt.set_cursor_style(cursor_style);
+        txt.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(block_style)
+                .title(title.to_string()),
+        );
+    } else {
+        let cursor_style = if is_active {
+            styles.invalid_cursor
+        } else {
+            styles.deactivate_cursor
+        };
+        txt.set_style(styles.invalid_block);
+        txt.set_cursor_style(cursor_style);
+        txt.set_block(
+            Block::default()
+                .borders(Borders::ALL)
+                .style(styles.invalid_block)
+                .title(format!("{normal_title} : {err}")),
+        );
     }
 }
 
