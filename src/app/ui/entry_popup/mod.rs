@@ -598,19 +598,25 @@ impl EntryPopup<'_> {
             return;
         };
         let line = self.tags_txt.lines().first().cloned().unwrap_or_default();
-        let (_, col) = self.tags_txt.cursor();
-        let start = tags_autocomplete::active_query_start(&line, col);
+        let (_, cursor_char) = self.tags_txt.cursor();
+
+        let cursor_byte = tags_autocomplete::char_index_to_byte_index(&line, cursor_char);
+        let start_byte = tags_autocomplete::active_query_start(&line, cursor_char);
         let suffix = ", ";
 
         let mut new_line = String::with_capacity(line.len() + tag.len() + suffix.len());
-        new_line.push_str(&line[..start]);
+        new_line.push_str(&line[..start_byte]);
         new_line.push_str(&tag);
         new_line.push_str(suffix);
-        new_line.push_str(&line[col.min(line.len())..]);
+        new_line.push_str(&line[cursor_byte..]);
 
-        let new_cursor = start + tag.len() + suffix.len();
+        // Cursor target is in CHARACTERS (CursorMove::Jump is char-based).
+        let chars_before_splice = line[..start_byte].chars().count();
+        let inserted_char_count = tag.chars().count() + suffix.chars().count();
+        let new_cursor_char = chars_before_splice + inserted_char_count;
+
         let mut new_tags = TextArea::new(vec![new_line]);
-        new_tags.move_cursor(CursorMove::Jump(0, new_cursor as u16));
+        new_tags.move_cursor(CursorMove::Jump(0, new_cursor_char as u16));
         self.tags_txt = new_tags;
         self.tag_suggestions = None;
         self.validate_tags();

@@ -45,12 +45,24 @@ impl SuggestionState {
     }
 }
 
+/// Converts a character-index cursor (as returned by `TextArea::cursor`) into
+/// a byte index into `line`. Necessary because tags can contain emoji, where
+/// char index and byte index diverge.
+pub fn char_index_to_byte_index(line: &str, char_idx: usize) -> usize {
+    line.char_indices()
+        .nth(char_idx)
+        .map(|(b, _)| b)
+        .unwrap_or(line.len())
+}
+
 /// Returns the substring of `line` between the last comma (or start of line)
 /// and `cursor`, with leading whitespace trimmed. The "active query" is what
 /// the user is currently typing as a tag, before they reach the next comma.
+///
+/// `cursor` is a character index (per `TextArea::cursor`).
 pub fn extract_active_query(line: &str, cursor: usize) -> &str {
-    let bound = cursor.min(line.len());
-    let prefix = &line[..bound];
+    let cursor_byte = char_index_to_byte_index(line, cursor);
+    let prefix = &line[..cursor_byte];
     let after_comma = match prefix.rfind(',') {
         Some(idx) => &prefix[idx + 1..],
         None => prefix,
@@ -58,11 +70,13 @@ pub fn extract_active_query(line: &str, cursor: usize) -> &str {
     after_comma.trim_start()
 }
 
-/// Computes the byte index in `line` where the active query starts (after
+/// Returns the byte index in `line` where the active query starts (after
 /// the last comma + leading whitespace), useful for replacement insertion.
+///
+/// `cursor` is a character index (per `TextArea::cursor`).
 pub fn active_query_start(line: &str, cursor: usize) -> usize {
-    let bound = cursor.min(line.len());
-    let prefix = &line[..bound];
+    let cursor_byte = char_index_to_byte_index(line, cursor);
+    let prefix = &line[..cursor_byte];
     let after_comma_idx = prefix.rfind(',').map(|i| i + 1).unwrap_or(0);
     let trim_offset = prefix[after_comma_idx..]
         .bytes()
@@ -111,6 +125,32 @@ mod tests {
     fn extract_query_with_no_comma() {
         let line = "prod";
         assert_eq!(extract_active_query(line, 4), "prod");
+    }
+
+    #[test]
+    fn extract_query_handles_multibyte_emoji_in_line() {
+        // Repro of the panic: line ends mid-typing after emoji-prefixed tag.
+        let line = "✅ Productive, ⚡ En";
+        // 18 chars: 1 (✅) + 13 ( Productive, ) + 1 (⚡) + 3 ( En) = 18
+        let cursor = line.chars().count();
+        assert_eq!(cursor, 18);
+        assert_eq!(extract_active_query(line, cursor), "⚡ En");
+    }
+
+    #[test]
+    fn active_query_start_handles_multibyte_emoji() {
+        let line = "✅ Productive, ⚡ En";
+        let cursor = line.chars().count();
+        // The active query starts at the byte index of `⚡`, which is 16
+        // (after `✅` (3 bytes) + ` Productive, ` (13 bytes)).
+        assert_eq!(active_query_start(line, cursor), 16);
+    }
+
+    #[test]
+    fn char_to_byte_clamps_when_out_of_bounds() {
+        let line = "abc";
+        // char_idx beyond the string length clamps to line.len() (3).
+        assert_eq!(char_index_to_byte_index(line, 99), 3);
     }
 
     #[test]
