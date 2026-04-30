@@ -27,11 +27,12 @@ impl Editor<'_> {
             _ => {}
         }
 
-        if matches!(mode, EditorMode::Insert | EditorMode::Visual) {
-            if matches!(mode, EditorMode::Insert) && was_previewing {
-                self.text_area.move_cursor(CursorMove::Bottom);
-                self.text_area.move_cursor(CursorMove::End);
-            }
+        if matches!(mode, EditorMode::Insert) && was_previewing {
+            self.text_area.move_cursor(CursorMove::Bottom);
+            self.text_area.move_cursor(CursorMove::End);
+        }
+
+        if matches!(mode, EditorMode::Visual) {
             self.show_preview = false;
             self.preview_scroll = 0;
         }
