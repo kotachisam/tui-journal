@@ -48,6 +48,9 @@ impl EntriesList {
         styles: &Styles,
     ) {
         let jstyles = &styles.journals_list;
+        let content_width = (area.width as usize).saturating_sub(LIST_INNER_MARGIN);
+        let show_tags = matches!(app.settings.tag_visibility, TagVisibility::Show);
+        let tags_default_style: Style = jstyles.tags_default.into();
 
         let mut lines_count = 0;
 
@@ -57,100 +60,38 @@ impl EntriesList {
                 let highlight_selected =
                     self.multi_select_mode && app.selected_entries.contains(&entry.id);
 
-                // *** Title ***
-                let mut title = entry.title.to_string();
-
-                if highlight_selected {
-                    title.insert_str(0, "* ");
-                }
-
                 let title_style = match (self.is_active, highlight_selected) {
                     (_, true) => jstyles.title_selected,
                     (true, _) => jstyles.title_active,
                     (false, _) => jstyles.title_inactive,
                 };
 
-                let mut spans: Vec<Line> = if title.trim().is_empty() {
-                    Vec::new()
-                } else {
-                    let title_lines =
-                        textwrap::wrap(&title, area.width as usize - LIST_INNER_MARGIN);
-                    lines_count += title_lines.len();
-                    title_lines
-                        .iter()
-                        .map(|line| Line::from(Span::styled(line.to_string(), title_style)))
-                        .collect()
-                };
-
-                // *** Date & Priority ***
-                let date_priority_lines = match (app.settings.datum_visibility, entry.priority) {
-                    (DatumVisibility::Show, Some(prio)) => {
-                        let date_text = app.settings.date_format.display(&entry.date);
-                        let one_liner = format!("{date_text} | Priority: {prio}");
-
-                        if one_liner.len() > area.width as usize - LIST_INNER_MARGIN {
-                            vec![date_text, format!("Priority: {prio}")]
-                        } else {
-                            vec![one_liner]
-                        }
-                    }
-                    (DatumVisibility::Show, None) => {
-                        vec![app.settings.date_format.display(&entry.date)]
-                    }
-                    (DatumVisibility::Hide, None) => Vec::new(),
-                    (DatumVisibility::EmptyLine, None) => vec![String::new()],
-                    (_, Some(prio)) => {
-                        vec![format!("Priority: {}", prio)]
-                    }
-                };
-
-                let date_lines = date_priority_lines
-                    .iter()
-                    .map(|line| Line::from(Span::styled(line.to_string(), jstyles.date_priority)));
-                spans.extend(date_lines);
-
-                // date & priority lines
-                lines_count += date_priority_lines.len();
-
-                // *** Tags ***
-                let show_tags = matches!(app.settings.tag_visibility, TagVisibility::Show);
-                if show_tags && !entry.tags.is_empty() {
-                    const TAGS_SEPARATOR: &str = " | ";
-                    let tags_default_style: Style = jstyles.tags_default.into();
-
-                    let mut added_lines = 1;
-                    spans.push(Line::default());
-
-                    for tag in entry.tags.iter() {
-                        let mut last_line = spans.last_mut().unwrap();
-                        let allowd_width = area.width as usize - LIST_INNER_MARGIN;
-                        if !last_line.spans.is_empty() {
-                            if last_line.width() + TAGS_SEPARATOR.len() > allowd_width {
-                                added_lines += 1;
-                                spans.push(Line::default());
-                                last_line = spans.last_mut().unwrap();
-                            }
-                            last_line.push_span(Span::styled(TAGS_SEPARATOR, tags_default_style))
-                        }
-
-                        let style = app
-                            .get_color_for_tag(tag)
+                let mut spans = build_title_lines(
+                    &entry.title,
+                    content_width,
+                    title_style.into(),
+                    highlight_selected,
+                );
+                spans.extend(build_date_priority_lines(
+                    &app.settings.date_format.display(&entry.date),
+                    entry.priority,
+                    app.settings.datum_visibility,
+                    content_width,
+                    jstyles.date_priority.into(),
+                ));
+                spans.extend(build_tags_lines(
+                    &entry.tags,
+                    content_width,
+                    show_tags,
+                    tags_default_style,
+                    |tag| {
+                        app.get_color_for_tag(tag)
                             .map(|c| Style::default().bg(c.background).fg(c.foreground))
-                            .unwrap_or(tags_default_style);
-                        let span_to_add = Span::styled(tag.to_owned(), style);
+                            .unwrap_or(tags_default_style)
+                    },
+                ));
 
-                        if last_line.width() + tag.len() < allowd_width {
-                            last_line.push_span(span_to_add);
-                        } else {
-                            added_lines += 1;
-                            let line = Line::from(span_to_add);
-                            spans.push(line);
-                        }
-                    }
-
-                    lines_count += added_lines;
-                }
-
+                lines_count += spans.len();
                 ListItem::new(spans)
             })
             .collect();
@@ -170,11 +111,8 @@ impl EntriesList {
 
         frame.render_stateful_widget(list, area, &mut self.state);
 
-        let lines_count = lines_count;
-
-        if lines_count > area.height as usize - 2 {
+        if lines_count > area.height as usize - 2 && items_count > 0 {
             let avg_item_height = lines_count / items_count;
-
             self.render_scrollbar(
                 frame,
                 area,
@@ -329,5 +267,211 @@ fn capitalize(s: &str) -> String {
     match chars.next() {
         Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
         None => String::new(),
+    }
+}
+
+fn build_title_lines<'a>(
+    title: &str,
+    content_width: usize,
+    style: Style,
+    highlight_selected: bool,
+) -> Vec<Line<'a>> {
+    let mut title = title.to_string();
+    if highlight_selected {
+        title.insert_str(0, "* ");
+    }
+    if title.trim().is_empty() {
+        return Vec::new();
+    }
+    textwrap::wrap(&title, content_width)
+        .iter()
+        .map(|line| Line::from(Span::styled(line.to_string(), style)))
+        .collect()
+}
+
+fn build_date_priority_lines<'a>(
+    date_text: &str,
+    priority: Option<u32>,
+    datum_visibility: DatumVisibility,
+    content_width: usize,
+    style: Style,
+) -> Vec<Line<'a>> {
+    let raw_lines: Vec<String> = match (datum_visibility, priority) {
+        (DatumVisibility::Show, Some(prio)) => {
+            let one_liner = format!("{date_text} | Priority: {prio}");
+            if one_liner.len() > content_width {
+                vec![date_text.to_owned(), format!("Priority: {prio}")]
+            } else {
+                vec![one_liner]
+            }
+        }
+        (DatumVisibility::Show, None) => vec![date_text.to_owned()],
+        (DatumVisibility::Hide, None) => Vec::new(),
+        (DatumVisibility::EmptyLine, None) => vec![String::new()],
+        (_, Some(prio)) => vec![format!("Priority: {prio}")],
+    };
+    raw_lines
+        .into_iter()
+        .map(|line| Line::from(Span::styled(line, style)))
+        .collect()
+}
+
+fn build_tags_lines<'a>(
+    tags: &[String],
+    content_width: usize,
+    show_tags: bool,
+    separator_style: Style,
+    tag_style: impl Fn(&str) -> Style,
+) -> Vec<Line<'a>> {
+    if !show_tags || tags.is_empty() {
+        return Vec::new();
+    }
+    const TAGS_SEPARATOR: &str = " | ";
+
+    let mut lines: Vec<Line> = vec![Line::default()];
+    for tag in tags {
+        let mut last_line = lines.last_mut().unwrap();
+        if !last_line.spans.is_empty() {
+            if last_line.width() + TAGS_SEPARATOR.len() > content_width {
+                lines.push(Line::default());
+                last_line = lines.last_mut().unwrap();
+            }
+            last_line.push_span(Span::styled(TAGS_SEPARATOR, separator_style));
+        }
+
+        let span_to_add = Span::styled(tag.to_owned(), tag_style(tag));
+        if last_line.width() + tag.len() < content_width {
+            last_line.push_span(span_to_add);
+        } else {
+            lines.push(Line::from(span_to_add));
+        }
+    }
+    lines
+}
+
+#[cfg(test)]
+mod tests {
+    use ratatui::style::{Color, Style};
+
+    use crate::settings::DatumVisibility;
+
+    use super::{build_date_priority_lines, build_tags_lines, build_title_lines};
+
+    fn plain_style() -> Style {
+        Style::default()
+    }
+
+    #[test]
+    fn title_lines_empty_when_blank() {
+        assert!(build_title_lines("   ", 80, plain_style(), false).is_empty());
+    }
+
+    #[test]
+    fn title_lines_prepends_selection_marker() {
+        let lines = build_title_lines("hello", 80, plain_style(), true);
+        let rendered: String = lines
+            .iter()
+            .flat_map(|l| l.spans.iter().map(|s| s.content.as_ref()))
+            .collect();
+        assert!(rendered.starts_with("* hello"));
+    }
+
+    #[test]
+    fn title_lines_wrap_when_too_long() {
+        let title = "alpha beta gamma delta epsilon zeta";
+        let lines = build_title_lines(title, 12, plain_style(), false);
+        assert!(lines.len() > 1, "expected wrap, got {} lines", lines.len());
+    }
+
+    #[test]
+    fn date_priority_combined_when_fits() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            Some(3),
+            DatumVisibility::Show,
+            80,
+            plain_style(),
+        );
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn date_priority_split_when_too_long() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            Some(3),
+            DatumVisibility::Show,
+            10,
+            plain_style(),
+        );
+        assert_eq!(lines.len(), 2);
+    }
+
+    #[test]
+    fn date_priority_hidden_when_no_priority_and_hidden() {
+        let lines =
+            build_date_priority_lines("29-04-2026", None, DatumVisibility::Hide, 80, plain_style());
+        assert!(lines.is_empty());
+    }
+
+    #[test]
+    fn date_priority_empty_line_when_configured() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            None,
+            DatumVisibility::EmptyLine,
+            80,
+            plain_style(),
+        );
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn tags_empty_when_disabled() {
+        let tags = vec!["a".into(), "b".into()];
+        assert!(build_tags_lines(&tags, 80, false, plain_style(), |_| plain_style()).is_empty());
+    }
+
+    #[test]
+    fn tags_empty_when_no_tags() {
+        let tags: Vec<String> = vec![];
+        assert!(build_tags_lines(&tags, 80, true, plain_style(), |_| plain_style()).is_empty());
+    }
+
+    #[test]
+    fn tags_fit_on_one_line_when_narrow_enough() {
+        let tags = vec!["one".into(), "two".into()];
+        let lines = build_tags_lines(&tags, 80, true, plain_style(), |_| plain_style());
+        assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn tags_wrap_when_separator_overflows() {
+        // "alpha" (5) + " | " (3) + "beta" (4) = 12 → fits in 13 but not 11
+        let tags = vec!["alpha".into(), "beta".into()];
+        let lines = build_tags_lines(&tags, 8, true, plain_style(), |_| plain_style());
+        assert!(lines.len() >= 2);
+    }
+
+    #[test]
+    fn tags_use_provided_style_resolver() {
+        let tags = vec!["hot".into(), "cold".into()];
+        let resolver = |tag: &str| match tag {
+            "hot" => Style::default().fg(Color::Red),
+            _ => Style::default().fg(Color::Blue),
+        };
+        let lines = build_tags_lines(&tags, 80, true, plain_style(), resolver);
+        let red_count = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.style.fg == Some(Color::Red))
+            .count();
+        let blue_count = lines
+            .iter()
+            .flat_map(|l| l.spans.iter())
+            .filter(|s| s.style.fg == Some(Color::Blue))
+            .count();
+        assert_eq!(red_count, 1);
+        assert_eq!(blue_count, 1);
     }
 }
