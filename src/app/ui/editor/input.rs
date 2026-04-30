@@ -283,9 +283,10 @@ impl Editor<'_> {
         let lines_owned: Vec<String> = self.text_area.lines().to_vec();
         let lines: Vec<&str> = lines_owned.iter().map(String::as_str).collect();
         let (cursor_row, cursor_col) = self.text_area.cursor();
+        let rows = super::render::word_wrap_lines(&lines, width);
 
         let Some((vrow, vcol)) =
-            super::render::wrapped_cursor_position(&lines, cursor_row, cursor_col, width)
+            super::render::wrapped_cursor_position(&rows, cursor_row, cursor_col)
         else {
             return false;
         };
@@ -297,7 +298,7 @@ impl Editor<'_> {
             return true;
         }
         let (target_row, target_col) =
-            super::render::visual_to_source(&lines, target_signed as u16, vcol, width);
+            super::render::visual_to_source(&rows, target_signed as u16, vcol);
         self.text_area
             .move_cursor(CursorMove::Jump(target_row as u16, target_col as u16));
         true
