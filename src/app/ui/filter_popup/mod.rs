@@ -4,7 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::Style,
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
 };
 use tui_textarea::{CursorMove, TextArea};
@@ -14,7 +14,11 @@ use crate::app::{
     keymap::Input,
 };
 
-use super::{PopupReturn, Styles, ui_functions::centered_rect};
+use super::{
+    PopupReturn, Styles,
+    ui_functions::centered_rect,
+    widgets::{FieldStyles, render_field},
+};
 
 type FilterPopupReturn = PopupReturn<Option<Filter>>;
 
@@ -172,59 +176,36 @@ impl FilterPopup<'_> {
         priority_area: Rect,
         styles: &Styles,
     ) {
-        let gstyles = &styles.general;
-        let active_cursor_style: Style = gstyles.input_cursor_active.into();
-        let invalid_cursor_style: Style = gstyles.input_cursor_invalid.into();
-        let deactivate_cursor_style = Style::default().bg(Color::Reset);
-
-        let mut title_txt_block = Block::default().title("Title").borders(Borders::ALL);
-        let mut content_txt_block = Block::default().title("Content").borders(Borders::ALL);
-        let mut priority_txt_block = if self.priority_err_msg.is_empty() {
-            Block::default().title("Priority").borders(Borders::ALL)
-        } else {
-            Block::default()
-                .title(format!("Priority : {}", self.priority_err_msg))
-                .borders(Borders::ALL)
-                .style(gstyles.input_block_invalid)
-        };
-
-        match self.active_control {
-            FilterControl::TitleTxt => {
-                self.title_txt.set_cursor_style(active_cursor_style);
-                self.content_txt.set_cursor_style(deactivate_cursor_style);
-                self.priority_txt.set_cursor_style(deactivate_cursor_style);
-                title_txt_block = title_txt_block.style(gstyles.input_block_active);
-            }
-            FilterControl::ContentTxt => {
-                self.title_txt.set_cursor_style(deactivate_cursor_style);
-                self.content_txt.set_cursor_style(active_cursor_style);
-                self.priority_txt.set_cursor_style(deactivate_cursor_style);
-                content_txt_block = content_txt_block.style(gstyles.input_block_active);
-            }
-            FilterControl::TagsList => {
-                self.title_txt.set_cursor_style(deactivate_cursor_style);
-                self.content_txt.set_cursor_style(deactivate_cursor_style);
-                self.priority_txt.set_cursor_style(deactivate_cursor_style);
-            }
-            FilterControl::PriorityTxt => {
-                self.title_txt.set_cursor_style(deactivate_cursor_style);
-                self.content_txt.set_cursor_style(deactivate_cursor_style);
-                if self.priority_err_msg.is_empty() {
-                    self.priority_txt.set_cursor_style(active_cursor_style);
-                    priority_txt_block = priority_txt_block.style(gstyles.input_block_active);
-                } else {
-                    self.priority_txt.set_cursor_style(invalid_cursor_style);
-                }
-            }
-        }
-
         self.title_txt.set_cursor_line_style(Style::default());
         self.content_txt.set_cursor_line_style(Style::default());
         self.priority_txt.set_cursor_line_style(Style::default());
 
-        self.title_txt.set_block(title_txt_block);
-        self.content_txt.set_block(content_txt_block);
-        self.priority_txt.set_block(priority_txt_block);
+        let field_styles = FieldStyles::new(styles);
+
+        render_field(
+            &mut self.title_txt,
+            self.active_control == FilterControl::TitleTxt,
+            "",
+            "Title",
+            None,
+            &field_styles,
+        );
+        render_field(
+            &mut self.content_txt,
+            self.active_control == FilterControl::ContentTxt,
+            "",
+            "Content",
+            None,
+            &field_styles,
+        );
+        render_field(
+            &mut self.priority_txt,
+            self.active_control == FilterControl::PriorityTxt,
+            &self.priority_err_msg,
+            "Priority",
+            None,
+            &field_styles,
+        );
 
         frame.render_widget(&self.title_txt, title_area);
         frame.render_widget(&self.content_txt, content_area);
