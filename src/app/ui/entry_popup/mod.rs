@@ -42,7 +42,6 @@ pub struct EntryPopup<'a> {
     active_txt: ActiveText,
     title_err_msg: String,
     date_err_msg: String,
-    tags_err_msg: String,
     priority_err_msg: String,
     category_err_msg: String,
     tags_popup: Option<TagsPopup>,
@@ -93,7 +92,6 @@ impl<'a> EntryPopup<'a> {
             active_txt: ActiveText::Title,
             title_err_msg: String::default(),
             date_err_msg: String::default(),
-            tags_err_msg: String::default(),
             priority_err_msg: String::default(),
             category_err_msg: String::default(),
             tags_popup: None,
@@ -257,7 +255,7 @@ impl<'a> EntryPopup<'a> {
         render_field(
             &mut self.tags_txt,
             self.active_txt == ActiveText::Tags,
-            &self.tags_err_msg,
+            "",
             "Tags",
             Some("Tags - comma-separated | <Ctrl-T>: browse existing"),
             &field_styles,
@@ -326,7 +324,6 @@ impl<'a> EntryPopup<'a> {
     pub fn is_input_valid(&self) -> bool {
         self.title_err_msg.is_empty()
             && self.date_err_msg.is_empty()
-            && self.tags_err_msg.is_empty()
             && self.priority_err_msg.is_empty()
             && self.category_err_msg.is_empty()
     }
@@ -334,7 +331,6 @@ impl<'a> EntryPopup<'a> {
     pub fn validate_all(&mut self) {
         self.validate_title();
         self.validate_date();
-        self.validate_tags();
         self.validate_priority();
         self.validate_category();
     }
@@ -348,20 +344,6 @@ impl<'a> EntryPopup<'a> {
             self.date_err_msg = err.to_string();
         } else {
             self.date_err_msg.clear();
-        }
-    }
-
-    fn validate_tags(&mut self) {
-        let tags = text_to_tags(
-            self.tags_txt
-                .lines()
-                .first()
-                .expect("Tags TextBox have one line"),
-        );
-        if tags.iter().any(|tag| tag.contains(',')) {
-            self.tags_err_msg = "Tags are invalid".into();
-        } else {
-            self.tags_err_msg.clear();
         }
     }
 
@@ -527,9 +509,7 @@ impl<'a> EntryPopup<'a> {
                         }
                     }
                     ActiveText::Tags => {
-                        if self.tags_txt.input(KeyEvent::from(input)) {
-                            self.validate_tags();
-                        }
+                        self.tags_txt.input(KeyEvent::from(input));
                     }
                     ActiveText::Priority => {
                         if self.priority_txt.input(KeyEvent::from(input)) {
@@ -590,7 +570,6 @@ impl<'a> EntryPopup<'a> {
         new_tags.move_cursor(CursorMove::Jump(0, new_cursor_char as u16));
         self.tags_txt = new_tags;
         self.tag_suggestions = None;
-        self.validate_tags();
     }
 
     fn apply_selected_tag(&mut self) {
@@ -622,7 +601,6 @@ impl<'a> EntryPopup<'a> {
         new_tags.move_cursor(CursorMove::Jump(0, new_cursor_char as u16));
         self.tags_txt = new_tags;
         self.tag_suggestions = None;
-        self.validate_tags();
     }
 
     fn apply_selected_category(&mut self) {
