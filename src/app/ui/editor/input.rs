@@ -53,6 +53,14 @@ impl Editor<'_> {
                 }
             }
 
+            if self.handle_mention_navigation(input) {
+                return Ok(HandleInputReturnType::Handled);
+            }
+
+            if self.handle_mention_commit(input) {
+                return Ok(HandleInputReturnType::Handled);
+            }
+
             if self.try_visual_navigation(input) {
                 return Ok(HandleInputReturnType::Handled);
             }
@@ -61,11 +69,21 @@ impl Editor<'_> {
                 return Ok(HandleInputReturnType::Handled);
             }
 
-            // give the input to the editor
+            self.dismiss_mention_on_break_char(input);
+
+            let is_at_typed = matches!(input.key_code, KeyCode::Char('@'))
+                && input.modifiers == KeyModifiers::NONE;
+
             let key_event = KeyEvent::from(input);
             if self.text_area.input(key_event) {
                 self.is_dirty = true;
                 self.refresh_has_unsaved(app);
+            }
+
+            if is_at_typed {
+                self.maybe_open_mention(app);
+            } else if self.mention.is_some() {
+                self.update_mention(app);
             }
 
             return Ok(HandleInputReturnType::Handled);
@@ -267,6 +285,129 @@ impl Editor<'_> {
     }
 
     /// Up on first line / Down on last line snaps to line start/end instead of no-op.
+    fn handle_mention_navigation(&mut self, input: &Input) -> bool {
+        let Some(mention) = self.mention.as_mut() else {
+            return false;
+        };
+        if !input.modifiers.is_empty() {
+            return false;
+        }
+        match input.key_code {
+            KeyCode::Esc => {
+                self.mention = None;
+                true
+            }
+            KeyCode::Up => {
+                mention.move_up();
+                true
+            }
+            KeyCode::Down => {
+                mention.move_down();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_mention_commit(&mut self, input: &Input) -> bool {
+        if self.mention.is_none() {
+            return false;
+        }
+        if !matches!(input.key_code, KeyCode::Tab | KeyCode::Enter) {
+            return false;
+        }
+        if !input.modifiers.is_empty() {
+            return false;
+        }
+        let Some(mention) = self.mention.as_ref() else {
+            return false;
+        };
+        let Some(candidate) = mention.selected().cloned() else {
+            self.mention = None;
+            return false;
+        };
+        self.commit_mention(candidate.id);
+        true
+    }
+
+    fn dismiss_mention_on_break_char(&mut self, input: &Input) {
+        if self.mention.is_none() {
+            return;
+        }
+        if let KeyCode::Char(c) = input.key_code
+            && super::mention::is_break_char(c)
+        {
+            self.mention = None;
+        }
+    }
+
+    fn maybe_open_mention<D: DataProvider>(&mut self, app: &App<D>) {
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        if cursor_col == 0 {
+            return;
+        }
+        let at_col = cursor_col - 1;
+        let Some(line) = self.text_area.lines().get(cursor_line) else {
+            return;
+        };
+        if !super::mention::should_open_mention(line, at_col) {
+            return;
+        }
+        let mut state = super::mention::MentionState::new(cursor_line, at_col);
+        let candidates =
+            super::mention::build_candidates(&app.entries, app.current_entry_id);
+        state.candidates = super::mention::filter_candidates(&candidates, &state.query);
+        self.mention = Some(state);
+    }
+
+    fn update_mention<D: DataProvider>(&mut self, app: &App<D>) {
+        let Some(mention) = self.mention.as_ref() else {
+            return;
+        };
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        if cursor_line != mention.anchor_line || cursor_col <= mention.anchor_col {
+            self.mention = None;
+            return;
+        }
+        let Some(line) = self.text_area.lines().get(cursor_line) else {
+            self.mention = None;
+            return;
+        };
+        let query: String = line
+            .chars()
+            .skip(mention.anchor_col + 1)
+            .take(cursor_col - mention.anchor_col - 1)
+            .collect();
+        let candidates =
+            super::mention::build_candidates(&app.entries, app.current_entry_id);
+        let filtered = super::mention::filter_candidates(&candidates, &query);
+        if let Some(mention) = self.mention.as_mut() {
+            mention.query = query;
+            mention.candidates = filtered;
+            if mention.selected_idx >= mention.candidates.len() {
+                mention.selected_idx = 0;
+            }
+        }
+    }
+
+    fn commit_mention(&mut self, entry_id: u32) {
+        let Some(mention) = self.mention.take() else {
+            return;
+        };
+        let token = super::mention::format_mention_token(entry_id);
+        let (_, cursor_col) = self.text_area.cursor();
+        let chars_to_remove = cursor_col.saturating_sub(mention.anchor_col);
+
+        self.text_area.move_cursor(tui_textarea::CursorMove::Jump(
+            mention.anchor_line as u16,
+            mention.anchor_col as u16,
+        ));
+        for _ in 0..chars_to_remove {
+            self.text_area.delete_next_char();
+        }
+        self.text_area.insert_str(&token);
+    }
+
     fn try_visual_navigation(&mut self, input: &Input) -> bool {
         if !self.show_preview || !input.modifiers.is_empty() {
             return false;

@@ -4,6 +4,7 @@ mod clipboard;
 mod content;
 mod highlight;
 mod input;
+mod mention;
 mod mode;
 mod render;
 
@@ -18,6 +19,7 @@ pub struct Editor<'a> {
     preview_scroll: u16,
     show_preview: bool,
     last_wrap_width: Option<u16>,
+    mention: Option<mention::MentionState>,
 }
 
 impl<'a> Editor<'a> {
@@ -33,6 +35,7 @@ impl<'a> Editor<'a> {
             show_preview: true,
             preview_scroll: 0,
             last_wrap_width: None,
+            mention: None,
         }
     }
 

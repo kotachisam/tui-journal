@@ -110,7 +110,8 @@ where
         ui_components.show_err_msg(err.to_string());
     }
 
-    ui_components.set_current_entry(app.entries.first().map(|entry| entry.id), &mut app);
+    let initial_entry_id = app.get_active_entries().next().map(|entry| entry.id);
+    ui_components.set_current_entry(initial_entry_id, &mut app);
 
     draw_ui(terminal, &mut app, &mut ui_components)?;
 

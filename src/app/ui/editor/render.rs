@@ -191,6 +191,19 @@ impl Editor<'_> {
             if vrow >= self.preview_scroll && scrolled_row < inner.height && vcol < inner.width {
                 frame.set_cursor_position((inner.x + vcol, inner.y + scrolled_row));
             }
+
+            if let Some(mention) = self.mention.as_ref()
+                && vrow >= self.preview_scroll
+                && scrolled_row < inner.height
+            {
+                let anchor = Rect {
+                    x: inner.x + vcol.min(inner.width.saturating_sub(1)),
+                    y: inner.y + scrolled_row,
+                    width: 1,
+                    height: 1,
+                };
+                super::mention::render_overlay(frame, anchor, mention);
+            }
         }
     }
 
