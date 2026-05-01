@@ -85,6 +85,8 @@ pub enum UICommand {
     /// Pending-only: triggered by Enter/click on a mention link. Target entry id
     /// is stored on `UIComponents.pending_mention_target`.
     FollowMention,
+    /// Toggles the in-session display of entry IDs next to dates in the entries list.
+    ToggleEntryIdDisplay,
 }
 
 #[derive(Debug, Clone)]
@@ -275,6 +277,10 @@ impl UICommand {
                 "Follow mention",
                 "Navigate to the entry referenced by the mention link",
             ),
+            UICommand::ToggleEntryIdDisplay => CommandInfo::new(
+                "Toggle entry IDs",
+                "Show or hide entry IDs next to dates in the entries list (in-session only)",
+            ),
         }
     }
 
@@ -348,6 +354,10 @@ impl UICommand {
             UICommand::CycleViewCategoryPrev => exec_cycle_view_category(app, -1),
             UICommand::FollowMention => {
                 unreachable!("FollowMention is pending-only, never dispatched as a keymap")
+            }
+            UICommand::ToggleEntryIdDisplay => {
+                ui_components.entries_list.toggle_entry_ids();
+                Ok(HandleInputReturnType::Handled)
             }
         }
     }
@@ -477,6 +487,9 @@ impl UICommand {
             }
             UICommand::FollowMention => {
                 continue_follow_mention(ui_components, app, msg_box_result).await
+            }
+            UICommand::ToggleEntryIdDisplay => {
+                unreachable!("ToggleEntryIdDisplay has no msgbox continuation")
             }
         }
     }

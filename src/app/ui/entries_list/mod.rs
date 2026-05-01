@@ -29,6 +29,7 @@ pub struct EntriesList {
     pub state: ListState,
     is_active: bool,
     pub multi_select_mode: bool,
+    pub show_entry_ids: bool,
 }
 
 impl EntriesList {
@@ -37,7 +38,12 @@ impl EntriesList {
             state: ListState::default(),
             is_active: false,
             multi_select_mode: false,
+            show_entry_ids: false,
         }
+    }
+
+    pub fn toggle_entry_ids(&mut self) {
+        self.show_entry_ids = !self.show_entry_ids;
     }
 
     fn render_list<D: DataProvider>(
@@ -78,6 +84,7 @@ impl EntriesList {
                     app.settings.datum_visibility,
                     content_width,
                     jstyles.date_priority.into(),
+                    self.show_entry_ids.then_some(entry.id),
                 ));
                 spans.extend(build_tags_lines(
                     &entry.tags,
@@ -295,6 +302,7 @@ fn build_date_priority_lines<'a>(
     datum_visibility: DatumVisibility,
     content_width: usize,
     style: Style,
+    entry_id: Option<u32>,
 ) -> Vec<Line<'a>> {
     let raw_lines: Vec<String> = match (datum_visibility, priority) {
         (DatumVisibility::Show, Some(prio)) => {
@@ -310,10 +318,28 @@ fn build_date_priority_lines<'a>(
         (DatumVisibility::EmptyLine, None) => vec![String::new()],
         (_, Some(prio)) => vec![format!("Priority: {prio}")],
     };
-    raw_lines
-        .into_iter()
-        .map(|line| Line::from(Span::styled(line, style)))
-        .collect()
+    let id_badge = entry_id.map(|id| format!("  #{id}"));
+    let id_style = Style::default().add_modifier(Modifier::DIM);
+    let mut lines: Vec<Line<'a>> = Vec::new();
+    let mut id_appended = false;
+    for line in raw_lines {
+        let needs_id = !id_appended
+            && id_badge
+                .as_ref()
+                .is_some_and(|badge| line.starts_with(date_text)
+                    && line.len() + badge.len() <= content_width);
+        if needs_id {
+            let badge = id_badge.clone().expect("id_badge present");
+            lines.push(Line::from(vec![
+                Span::styled(line, style),
+                Span::styled(badge, id_style),
+            ]));
+            id_appended = true;
+        } else {
+            lines.push(Line::from(Span::styled(line, style)));
+        }
+    }
+    lines
 }
 
 fn build_tags_lines<'a>(
@@ -391,6 +417,7 @@ mod tests {
             DatumVisibility::Show,
             80,
             plain_style(),
+            None,
         );
         assert_eq!(lines.len(), 1);
     }
@@ -403,14 +430,21 @@ mod tests {
             DatumVisibility::Show,
             10,
             plain_style(),
+            None,
         );
         assert_eq!(lines.len(), 2);
     }
 
     #[test]
     fn date_priority_hidden_when_no_priority_and_hidden() {
-        let lines =
-            build_date_priority_lines("29-04-2026", None, DatumVisibility::Hide, 80, plain_style());
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            None,
+            DatumVisibility::Hide,
+            80,
+            plain_style(),
+            None,
+        );
         assert!(lines.is_empty());
     }
 
@@ -422,8 +456,56 @@ mod tests {
             DatumVisibility::EmptyLine,
             80,
             plain_style(),
+            None,
         );
         assert_eq!(lines.len(), 1);
+    }
+
+    #[test]
+    fn date_priority_appends_id_badge_when_provided() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            None,
+            DatumVisibility::Show,
+            80,
+            plain_style(),
+            Some(312),
+        );
+        assert_eq!(lines.len(), 1);
+        let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(rendered, "29-04-2026  #312");
+    }
+
+    #[test]
+    fn date_priority_omits_id_badge_when_too_narrow() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            None,
+            DatumVisibility::Show,
+            12,
+            plain_style(),
+            Some(312),
+        );
+        assert_eq!(lines.len(), 1);
+        let rendered: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(rendered, "29-04-2026");
+    }
+
+    #[test]
+    fn date_priority_id_badge_skipped_on_priority_only_line() {
+        let lines = build_date_priority_lines(
+            "29-04-2026",
+            Some(3),
+            DatumVisibility::Show,
+            10,
+            plain_style(),
+            Some(312),
+        );
+        assert_eq!(lines.len(), 2);
+        let line0: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(line0, "29-04-2026");
+        let line1: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(line1, "Priority: 3");
     }
 
     #[test]
