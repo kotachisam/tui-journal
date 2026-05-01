@@ -3,14 +3,20 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState},
 };
 
 use backend::Entry;
 
+use crate::settings::DateFormat;
+
 const MAX_MENTION_SUGGESTIONS: usize = 8;
-const MENTION_DISPLAY_TITLE_MAX_CHARS: usize = 50;
+const SNIPPET_WINDOW_CHARS: usize = 70;
+const SNIPPET_LEAD_CONTEXT: usize = 12;
+const OVERLAY_WIDTH: u16 = 80;
+const BODY_SCORE_WEIGHT: i64 = 2;
 
 pub struct MentionState {
     pub anchor_line: usize,
@@ -20,10 +26,22 @@ pub struct MentionState {
     pub selected_idx: usize,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MentionCandidate {
     pub id: u32,
-    pub display_title: String,
+    pub snippet: String,
+    pub match_indices: Vec<usize>,
+    pub date_display: String,
+}
+
+#[derive(Clone)]
+pub struct CandidateSource {
+    pub id: u32,
+    pub body_flat: String,
+    pub body_first_line: String,
+    pub title: String,
+    pub tags_joined: String,
+    pub date_display: String,
 }
 
 impl MentionState {
@@ -70,93 +88,207 @@ pub fn is_break_char(c: char) -> bool {
     true
 }
 
-pub fn build_search_text(title: &str, content: &str, tags: &[String]) -> String {
-    const SEPARATOR: &str = " — ";
-    let content_flat: String = content
-        .chars()
-        .map(|c| if c.is_whitespace() { ' ' } else { c })
-        .collect();
-    let tags_joined = tags.join(" ");
-    [title.trim(), content_flat.trim(), tags_joined.trim()]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(SEPARATOR)
+fn flatten_whitespace(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut prev_space = false;
+    for c in s.chars() {
+        if c.is_whitespace() {
+            if !prev_space && !out.is_empty() {
+                out.push(' ');
+                prev_space = true;
+            }
+        } else {
+            out.push(c);
+            prev_space = false;
+        }
+    }
+    if out.ends_with(' ') {
+        out.pop();
+    }
+    out
 }
 
-pub fn resolve_display_title(title: &str, content: &str) -> String {
-    let trimmed_title = title.trim();
-    if !trimmed_title.is_empty() {
-        return truncate(trimmed_title, MENTION_DISPLAY_TITLE_MAX_CHARS);
-    }
-    let first_line = content
-        .lines()
+fn first_non_blank_line(s: &str) -> String {
+    s.lines()
         .find(|l| !l.trim().is_empty())
-        .map(str::trim)
-        .unwrap_or("(empty)");
-    truncate(first_line, MENTION_DISPLAY_TITLE_MAX_CHARS)
+        .map(|l| l.trim().to_string())
+        .unwrap_or_else(|| "(empty)".to_string())
 }
 
-fn truncate(s: &str, max_chars: usize) -> String {
-    let chars: Vec<char> = s.chars().collect();
-    if chars.len() <= max_chars {
-        return s.to_string();
-    }
-    let truncated: String = chars.iter().take(max_chars).collect();
-    format!("{truncated}…")
-}
-
-pub fn build_candidates(entries: &[Entry], current_entry_id: Option<u32>) -> Vec<(u32, String, String)> {
+pub fn build_candidates(
+    entries: &[Entry],
+    current_entry_id: Option<u32>,
+    date_format: &DateFormat,
+) -> Vec<CandidateSource> {
     entries
         .iter()
         .filter(|e| Some(e.id) != current_entry_id)
         .filter(|e| e.deleted_at.is_none())
-        .map(|e| {
-            let display = resolve_display_title(&e.title, &e.content);
-            let search = build_search_text(&e.title, &e.content, &e.tags);
-            (e.id, display, search)
+        .map(|e| CandidateSource {
+            id: e.id,
+            body_flat: flatten_whitespace(&e.content),
+            body_first_line: first_non_blank_line(&e.content),
+            title: e.title.trim().to_string(),
+            tags_joined: e.tags.join(" "),
+            date_display: date_format.display(&e.date),
         })
         .collect()
 }
 
-pub fn filter_candidates(
-    candidates: &[(u32, String, String)],
+fn extract_snippet(
+    body_flat: &str,
+    body_first_line: &str,
     query: &str,
-) -> Vec<MentionCandidate> {
-    let trimmed = query.trim();
-
-    if trimmed.is_empty() {
-        let mut all: Vec<MentionCandidate> = candidates
-            .iter()
-            .map(|(id, title, _)| MentionCandidate {
-                id: *id,
-                display_title: title.clone(),
-            })
-            .collect();
-        all.sort_by_key(|c| std::cmp::Reverse(c.id));
-        all.truncate(MAX_MENTION_SUGGESTIONS);
-        return all;
+) -> (String, Vec<usize>) {
+    let chars: Vec<char> = body_flat.chars().collect();
+    if chars.is_empty() || query.trim().is_empty() {
+        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
     }
 
     let matcher = SkimMatcherV2::default().smart_case();
-    let mut scored: Vec<(i64, u32, String)> = candidates
-        .iter()
-        .filter_map(|(id, title, search)| {
-            matcher
-                .fuzzy_match(search, trimmed)
-                .map(|score| (score, *id, title.clone()))
-        })
+    let Some((_, indices)) = matcher.fuzzy_indices(body_flat, query.trim()) else {
+        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
+    };
+    let Some(&first_match) = indices.first() else {
+        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
+    };
+
+    let total = chars.len();
+    let start = first_match.saturating_sub(SNIPPET_LEAD_CONTEXT);
+    let end = (start + SNIPPET_WINDOW_CHARS).min(total);
+    let start = end.saturating_sub(SNIPPET_WINDOW_CHARS).min(start);
+
+    let leading = if start > 0 { 1 } else { 0 };
+    let mut out = String::new();
+    if leading == 1 {
+        out.push('…');
+    }
+    out.extend(chars[start..end].iter());
+    if end < total {
+        out.push('…');
+    }
+
+    let match_indices: Vec<usize> = indices
+        .into_iter()
+        .filter(|&i| i >= start && i < end)
+        .map(|i| i - start + leading)
         .collect();
-    scored.sort_by_key(|(score, _, _)| std::cmp::Reverse(*score));
+
+    (out, match_indices)
+}
+
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        return s.to_string();
+    }
+    let prefix: String = chars.iter().take(max_chars).collect();
+    format!("{prefix}…")
+}
+
+fn score_candidate(matcher: &SkimMatcherV2, src: &CandidateSource, query: &str) -> Option<i64> {
+    let body_score = matcher
+        .fuzzy_match(&src.body_flat, query)
+        .map(|s| s * BODY_SCORE_WEIGHT);
+    let other_haystack = if src.title.is_empty() {
+        src.tags_joined.clone()
+    } else if src.tags_joined.is_empty() {
+        src.title.clone()
+    } else {
+        format!("{} {}", src.title, src.tags_joined)
+    };
+    let other_score = if other_haystack.is_empty() {
+        None
+    } else {
+        matcher.fuzzy_match(&other_haystack, query)
+    };
+    match (body_score, other_score) {
+        (Some(a), Some(b)) => Some(a.max(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+pub fn filter_candidates(sources: &[CandidateSource], query: &str) -> Vec<MentionCandidate> {
+    let trimmed = query.trim();
+
+    if trimmed.is_empty() {
+        let mut all: Vec<&CandidateSource> = sources.iter().collect();
+        all.sort_by_key(|s| std::cmp::Reverse(s.id));
+        return all
+            .into_iter()
+            .take(MAX_MENTION_SUGGESTIONS)
+            .map(|s| {
+                let (snippet, match_indices) =
+                    extract_snippet(&s.body_flat, &s.body_first_line, "");
+                MentionCandidate {
+                    id: s.id,
+                    snippet,
+                    match_indices,
+                    date_display: s.date_display.clone(),
+                }
+            })
+            .collect();
+    }
+
+    let matcher = SkimMatcherV2::default().smart_case();
+    let mut scored: Vec<(i64, &CandidateSource)> = sources
+        .iter()
+        .filter_map(|s| score_candidate(&matcher, s, trimmed).map(|score| (score, s)))
+        .collect();
+    scored.sort_by_key(|(score, _)| std::cmp::Reverse(*score));
     scored.truncate(MAX_MENTION_SUGGESTIONS);
     scored
         .into_iter()
-        .map(|(_, id, display_title)| MentionCandidate { id, display_title })
+        .map(|(_, s)| {
+            let (snippet, match_indices) =
+                extract_snippet(&s.body_flat, &s.body_first_line, trimmed);
+            MentionCandidate {
+                id: s.id,
+                snippet,
+                match_indices,
+                date_display: s.date_display.clone(),
+            }
+        })
         .collect()
 }
 
 pub fn format_mention_token(id: u32) -> String {
     format!("@id:{id}")
+}
+
+fn highlight_snippet<'a>(snippet: &'a str, match_indices: &[usize]) -> Line<'a> {
+    if match_indices.is_empty() {
+        return Line::from(snippet);
+    }
+    let match_set: std::collections::BTreeSet<usize> = match_indices.iter().copied().collect();
+    let highlight = Style::default()
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let plain = Style::default();
+
+    let mut spans: Vec<Span<'a>> = Vec::new();
+    let mut buf = String::new();
+    let mut buf_is_match = false;
+    let flush = |buf: &mut String, is_match: bool, spans: &mut Vec<Span<'a>>| {
+        if buf.is_empty() {
+            return;
+        }
+        let style = if is_match { highlight } else { plain };
+        spans.push(Span::styled(std::mem::take(buf), style));
+    };
+
+    for (i, ch) in snippet.chars().enumerate() {
+        let is_match = match_set.contains(&i);
+        if !buf.is_empty() && is_match != buf_is_match {
+            flush(&mut buf, buf_is_match, &mut spans);
+        }
+        buf.push(ch);
+        buf_is_match = is_match;
+    }
+    flush(&mut buf, buf_is_match, &mut spans);
+    Line::from(spans)
 }
 
 pub fn render_overlay(frame: &mut Frame, anchor: Rect, state: &MentionState) {
@@ -177,9 +309,15 @@ pub fn render_overlay(frame: &mut Frame, anchor: Rect, state: &MentionState) {
         (below_y, space_below.max(3).min(desired_height))
     };
 
-    let overlay_width = 50u16.min(frame_area.width.saturating_sub(anchor.x));
+    let max_width = frame_area.width.saturating_sub(2).max(20);
+    let overlay_width = OVERLAY_WIDTH.min(max_width);
+    let overlay_x = if anchor.x + overlay_width > frame_area.width {
+        frame_area.width.saturating_sub(overlay_width)
+    } else {
+        anchor.x
+    };
     let overlay_area = Rect {
-        x: anchor.x,
+        x: overlay_x,
         y: overlay_y,
         width: overlay_width,
         height: overlay_height,
@@ -188,13 +326,17 @@ pub fn render_overlay(frame: &mut Frame, anchor: Rect, state: &MentionState) {
     let items: Vec<ListItem> = state
         .candidates
         .iter()
-        .map(|c| ListItem::new(c.display_title.as_str()))
+        .map(|c| ListItem::new(highlight_snippet(&c.snippet, &c.match_indices)))
         .collect();
 
-    let title = if state.query.is_empty() {
+    let date_display = state
+        .selected()
+        .map(|c| c.date_display.as_str())
+        .unwrap_or("");
+    let title = if date_display.is_empty() {
         "Mention — Tab/Enter insert, Esc dismiss".to_owned()
     } else {
-        format!("Mention: {} — Tab/Enter insert", state.query)
+        format!("{date_display} — Tab/Enter insert, Esc dismiss")
     };
 
     let list = List::new(items)
@@ -211,6 +353,22 @@ pub fn render_overlay(frame: &mut Frame, anchor: Rect, state: &MentionState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::{TimeZone, Utc};
+
+    fn entry(id: u32, title: &str, content: &str, tags: &[&str]) -> Entry {
+        Entry::new(
+            id,
+            Utc.with_ymd_and_hms(2026, 5, 15, 12, 0, 0).unwrap(),
+            title.to_string(),
+            content.to_string(),
+            tags.iter().map(|s| s.to_string()).collect(),
+            None,
+        )
+    }
+
+    fn dd_mm_yyyy() -> DateFormat {
+        DateFormat::new("DD-MM-YYYY")
+    }
 
     #[test]
     fn opens_at_start_of_line() {
@@ -247,70 +405,173 @@ mod tests {
     }
 
     #[test]
-    fn display_title_uses_title_when_present() {
-        assert_eq!(resolve_display_title("My Title", "body content"), "My Title");
-    }
-
-    #[test]
-    fn display_title_falls_back_to_first_body_line_when_blank() {
+    fn flattens_whitespace_to_single_spaces() {
         assert_eq!(
-            resolve_display_title("", "First line of body\nsecond"),
-            "First line of body"
+            flatten_whitespace("foo\n\n  bar\tbaz "),
+            "foo bar baz"
         );
     }
 
     #[test]
-    fn display_title_skips_blank_body_lines() {
+    fn first_line_picks_first_non_blank() {
         assert_eq!(
-            resolve_display_title("", "\n\n   \nactual content"),
+            first_non_blank_line("\n\n   \nactual content\nmore"),
             "actual content"
         );
     }
 
     #[test]
-    fn display_title_truncates_long_text() {
-        let long = "a".repeat(100);
-        let resolved = resolve_display_title("", &long);
-        assert!(resolved.ends_with('…'));
-        assert!(resolved.chars().count() <= MENTION_DISPLAY_TITLE_MAX_CHARS + 1);
+    fn first_line_handles_empty() {
+        assert_eq!(first_non_blank_line(""), "(empty)");
     }
 
     #[test]
-    fn display_title_handles_empty_entry() {
-        assert_eq!(resolve_display_title("", ""), "(empty)");
+    fn snippet_with_empty_query_returns_first_line() {
+        let body_flat = "First line of body second line";
+        let first = "First line of body";
+        let (snippet, indices) = extract_snippet(body_flat, first, "");
+        assert_eq!(snippet, "First line of body");
+        assert!(indices.is_empty());
     }
 
     #[test]
-    fn filter_with_empty_query_returns_all_recent_first() {
-        let candidates = vec![
-            (1u32, "First".into(), "First first".into()),
-            (5u32, "Fifth".into(), "Fifth fifth".into()),
-            (3u32, "Third".into(), "Third third".into()),
+    fn snippet_with_match_extracts_window_around_match() {
+        let body: String = "lorem ipsum ".repeat(20) + "naval ravikant " + &"more text ".repeat(20);
+        let (snippet, indices) = extract_snippet(&body, "lorem ipsum", "naval");
+        assert!(snippet.contains("naval"), "snippet missing match: {snippet}");
+        assert!(snippet.starts_with('…'), "expected leading ellipsis: {snippet}");
+        let char_count = snippet.chars().count();
+        assert!(char_count <= SNIPPET_WINDOW_CHARS + 2, "too long: {char_count}");
+        assert!(!indices.is_empty(), "expected highlight indices");
+    }
+
+    #[test]
+    fn snippet_falls_back_to_first_line_when_match_only_on_other_fields() {
+        let body_flat = "body with no match here";
+        let first = "body with no match here";
+        let (snippet, indices) = extract_snippet(body_flat, first, "tagonly");
+        assert_eq!(snippet, "body with no match here");
+        assert!(indices.is_empty());
+    }
+
+    #[test]
+    fn snippet_handles_multibyte_chars() {
+        let body = "préface naïve résumé café — naval ravikant — fin";
+        let (snippet, _) = extract_snippet(body, "préface naïve", "naval");
+        assert!(snippet.contains("naval"));
+    }
+
+    #[test]
+    fn snippet_match_indices_point_to_correct_chars_when_no_ellipsis() {
+        let body = "naval ravikant on twitter";
+        let first = body;
+        let (snippet, indices) = extract_snippet(body, first, "naval");
+        assert_eq!(snippet, body);
+        let chars: Vec<char> = snippet.chars().collect();
+        for &i in &indices {
+            assert!("naval".contains(chars[i]), "char at {i} not in 'naval'");
+        }
+    }
+
+    #[test]
+    fn snippet_match_indices_offset_for_leading_ellipsis() {
+        let body: String = "lorem ipsum ".repeat(20) + "naval";
+        let (snippet, indices) = extract_snippet(&body, "lorem ipsum", "naval");
+        assert!(snippet.starts_with('…'));
+        let chars: Vec<char> = snippet.chars().collect();
+        assert_eq!(chars[0], '…');
+        for &i in &indices {
+            assert!(i > 0, "matched char index {i} should not include the ellipsis");
+        }
+    }
+
+    #[test]
+    fn highlight_snippet_with_no_indices_returns_single_unstyled_span() {
+        let line = highlight_snippet("plain text", &[]);
+        assert_eq!(line.spans.len(), 1);
+        assert_eq!(line.spans[0].content, "plain text");
+    }
+
+    #[test]
+    fn highlight_snippet_alternates_styled_and_plain_runs() {
+        let line = highlight_snippet("naval ravikant", &[0, 1, 2, 3, 4]);
+        assert_eq!(line.spans.len(), 2);
+        assert_eq!(line.spans[0].content, "naval");
+        assert_eq!(line.spans[0].style.fg, Some(Color::Yellow));
+        assert_eq!(line.spans[1].content, " ravikant");
+        assert_eq!(line.spans[1].style.fg, None);
+    }
+
+    #[test]
+    fn build_candidates_skips_current_entry() {
+        let entries = vec![entry(1, "", "alpha", &[]), entry(2, "", "beta", &[])];
+        let sources = build_candidates(&entries, Some(1), &dd_mm_yyyy());
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].id, 2);
+    }
+
+    #[test]
+    fn build_candidates_formats_date_via_setting() {
+        let entries = vec![entry(1, "", "body", &[])];
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        assert_eq!(sources[0].date_display, "15-05-2026");
+    }
+
+    #[test]
+    fn filter_empty_query_returns_recency_ordered() {
+        let entries = vec![
+            entry(1, "", "first body", &[]),
+            entry(5, "", "fifth body", &[]),
+            entry(3, "", "third body", &[]),
         ];
-        let result = filter_candidates(&candidates, "");
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        let result = filter_candidates(&sources, "");
         assert_eq!(result[0].id, 5);
         assert_eq!(result[1].id, 3);
         assert_eq!(result[2].id, 1);
     }
 
     #[test]
-    fn filter_matches_by_search_text_not_just_title() {
-        let candidates = vec![
-            (1u32, "Untitled".into(), "Untitled — body about naval ravikant".into()),
-            (2u32, "Other".into(), "Other — unrelated content".into()),
+    fn filter_matches_body_content() {
+        let entries = vec![
+            entry(1, "", "body about naval ravikant on twitter", &[]),
+            entry(2, "", "unrelated thoughts", &[]),
         ];
-        let result = filter_candidates(&candidates, "naval");
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        let result = filter_candidates(&sources, "naval");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 1);
+        assert!(result[0].snippet.contains("naval"));
+    }
+
+    #[test]
+    fn filter_prefers_body_match_over_title_match() {
+        let entries = vec![
+            entry(1, "alpha", "completely different content", &[]),
+            entry(2, "unrelated", "alpha appears in this body text", &[]),
+        ];
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        let result = filter_candidates(&sources, "alpha");
+        assert_eq!(result[0].id, 2, "body match should outrank title match");
+    }
+
+    #[test]
+    fn filter_matches_via_tags_when_body_misses() {
+        let entries = vec![entry(1, "", "no relevant content", &["naval"])];
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        let result = filter_candidates(&sources, "naval");
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].id, 1);
     }
 
     #[test]
     fn filter_handles_multi_word_query() {
-        let candidates = vec![
-            (1u32, "Ent A".into(), "alpha beta gamma".into()),
-            (2u32, "Ent B".into(), "alpha gamma".into()),
+        let entries = vec![
+            entry(1, "", "alpha beta gamma", &[]),
+            entry(2, "", "alpha gamma", &[]),
         ];
-        let result = filter_candidates(&candidates, "alpha beta");
+        let sources = build_candidates(&entries, None, &dd_mm_yyyy());
+        let result = filter_candidates(&sources, "alpha beta");
         assert!(!result.is_empty());
         assert_eq!(result[0].id, 1);
     }

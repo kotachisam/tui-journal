@@ -354,8 +354,11 @@ impl Editor<'_> {
             return;
         }
         let mut state = super::mention::MentionState::new(cursor_line, at_col);
-        let candidates =
-            super::mention::build_candidates(&app.entries, app.current_entry_id);
+        let candidates = super::mention::build_candidates(
+            &app.entries,
+            app.current_entry_id,
+            &app.settings.date_format,
+        );
         state.candidates = super::mention::filter_candidates(&candidates, &state.query);
         self.mention = Some(state);
     }
@@ -378,8 +381,11 @@ impl Editor<'_> {
             .skip(mention.anchor_col + 1)
             .take(cursor_col - mention.anchor_col - 1)
             .collect();
-        let candidates =
-            super::mention::build_candidates(&app.entries, app.current_entry_id);
+        let candidates = super::mention::build_candidates(
+            &app.entries,
+            app.current_entry_id,
+            &app.settings.date_format,
+        );
         let filtered = super::mention::filter_candidates(&candidates, &query);
         if let Some(mention) = self.mention.as_mut() {
             mention.query = query;
