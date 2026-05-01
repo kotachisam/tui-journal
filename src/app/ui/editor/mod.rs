@@ -4,7 +4,7 @@ mod clipboard;
 mod content;
 mod highlight;
 mod input;
-mod mention;
+pub(crate) mod mention;
 mod mode;
 mod render;
 

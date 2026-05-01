@@ -347,7 +347,7 @@ impl Editor<'_> {
         true
     }
 
-    fn mention_at_cursor(&self) -> Option<u32> {
+    pub(crate) fn mention_at_cursor(&self) -> Option<u32> {
         let (cursor_line, cursor_col) = self.text_area.cursor();
         let line = self.text_area.lines().get(cursor_line)?;
         let mentions = super::mention::parse_mentions_in_line(line);

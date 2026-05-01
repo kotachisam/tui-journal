@@ -72,12 +72,36 @@ fn get_footer_text<D: DataProvider>(ui_components: &UIComponents, app: &App<D>) 
         ui_components.entries_list.multi_select_mode,
         ui_components.editor.is_preview_mode(),
     );
+    if !editor_mode
+        && !multi_select_mode
+        && ui_components.active_control == ControlType::EntryContentTxt
+        && let Some(text) = get_mention_hint_text(ui_components, app)
+    {
+        return text;
+    }
     match (editor_mode, multi_select_mode, preview_mode) {
         (true, false, _) => get_editor_mode_text(ui_components),
         (false, true, _) => get_multi_select_text(ui_components),
         (false, false, true) => get_preview_mode_text(ui_components),
         _ => get_standard_text(ui_components, app),
     }
+}
+
+fn get_mention_hint_text<D: DataProvider>(
+    ui_components: &UIComponents,
+    app: &App<D>,
+) -> Option<String> {
+    let id = ui_components.editor.mention_at_cursor()?;
+    let target = app.entries.iter().find(|e| e.id == id);
+    let label = match target {
+        Some(entry) if entry.deleted_at.is_none() => {
+            crate::app::ui::editor::mention::render_mention_label(entry, &app.settings.date_format)
+        }
+        _ => "(deleted)".to_string(),
+    };
+    Some(format!(
+        "@id:{id} → {label}{SEPARATOR}Enter / Ctrl+P / K to peek{SEPARATOR}Ctrl+Click to follow"
+    ))
 }
 
 fn get_preview_mode_text(ui_components: &UIComponents) -> String {
