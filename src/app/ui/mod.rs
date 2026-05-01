@@ -106,6 +106,7 @@ pub struct UIComponents<'a> {
     pending_command: Option<UICommand>,
     pub current_toast: Option<Toast>,
     pub pending_exit_after_push: bool,
+    pub pending_mention_target: Option<u32>,
 }
 
 impl UIComponents<'_> {
@@ -133,6 +134,7 @@ impl UIComponents<'_> {
             pending_command: None,
             current_toast: None,
             pending_exit_after_push: false,
+            pending_mention_target: None,
         }
     }
 
@@ -152,6 +154,51 @@ impl UIComponents<'_> {
         }
 
         self.editor.set_current_entry(entry_id, app);
+    }
+
+    pub async fn handle_mouse_click<D: DataProvider>(
+        &mut self,
+        column: u16,
+        row: u16,
+        app: &mut App<D>,
+    ) -> Result<HandleInputReturnType> {
+        let hit = self
+            .editor
+            .mention_hitboxes
+            .iter()
+            .find(|h| h.row == row && column >= h.col_start && column < h.col_end)
+            .cloned();
+        let Some(hit) = hit else {
+            return Ok(HandleInputReturnType::Handled);
+        };
+        if hit.missing {
+            self.show_toast(format!("Entry @id:{} not found", hit.id));
+            return Ok(HandleInputReturnType::Handled);
+        }
+        self.follow_mention(hit.id, app).await?;
+        Ok(HandleInputReturnType::Handled)
+    }
+
+    async fn follow_mention<D: DataProvider>(
+        &mut self,
+        id: u32,
+        app: &mut App<D>,
+    ) -> Result<()> {
+        let exists = app
+            .entries
+            .iter()
+            .any(|e| e.id == id && e.deleted_at.is_none());
+        if !exists {
+            self.show_toast(format!("Entry @id:{id} not found"));
+            return Ok(());
+        }
+        if self.has_unsaved() {
+            self.pending_mention_target = Some(id);
+            self.show_unsaved_msg_box(Some(UICommand::FollowMention));
+        } else {
+            self.set_current_entry(Some(id), app);
+        }
+        Ok(())
     }
 
     pub fn render_ui<D>(&mut self, f: &mut Frame, app: &App<D>)
@@ -183,6 +230,7 @@ impl UIComponents<'_> {
                         chunks[0],
                         &self.styles,
                         app.last_search_query.as_deref(),
+                        app,
                     );
                 }
             }
@@ -203,6 +251,7 @@ impl UIComponents<'_> {
                 entries_chunks[1],
                 &self.styles,
                 app.last_search_query.as_deref(),
+                app,
             );
         }
 
@@ -232,6 +281,18 @@ impl UIComponents<'_> {
     }
 
     pub async fn handle_input<D: DataProvider>(
+        &mut self,
+        input: &Input,
+        app: &mut App<D>,
+    ) -> Result<HandleInputReturnType> {
+        let result = self.handle_input_inner(input, app).await;
+        if let Some(id) = self.editor.pending_mention_follow.take() {
+            self.follow_mention(id, app).await?;
+        }
+        result
+    }
+
+    async fn handle_input_inner<D: DataProvider>(
         &mut self,
         input: &Input,
         app: &mut App<D>,

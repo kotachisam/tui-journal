@@ -111,6 +111,14 @@ impl Editor<'_> {
                     self.toggle_preview();
                     return Ok(HandleInputReturnType::Handled);
                 }
+                KeyCode::Enter if input.modifiers.is_empty() => {
+                    if let Some(id) = self.mention_at_cursor() {
+                        self.pending_mention_follow = Some(id);
+                        return Ok(HandleInputReturnType::Handled);
+                    }
+                    self.show_preview = false;
+                    self.preview_scroll = 0;
+                }
                 _ => {
                     self.show_preview = false;
                     self.preview_scroll = 0;
@@ -124,6 +132,15 @@ impl Editor<'_> {
         }
 
         let sync_os_clipboard = app.settings.sync_os_clipboard;
+
+        if input.key_code == KeyCode::Enter
+            && input.modifiers.is_empty()
+            && !self.is_visual_mode()
+            && let Some(id) = self.mention_at_cursor()
+        {
+            self.pending_mention_follow = Some(id);
+            return Ok(HandleInputReturnType::Handled);
+        }
 
         if is_default_navigation(input) {
             if !self.try_snap_vertical_navigation(input) {
@@ -328,6 +345,16 @@ impl Editor<'_> {
         };
         self.commit_mention(candidate.id);
         true
+    }
+
+    fn mention_at_cursor(&self) -> Option<u32> {
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        let line = self.text_area.lines().get(cursor_line)?;
+        let mentions = super::mention::parse_mentions_in_line(line);
+        mentions
+            .into_iter()
+            .find(|m| cursor_col >= m.char_range.start && cursor_col < m.char_range.end)
+            .map(|m| m.id)
     }
 
     fn dismiss_mention_on_break_char(&mut self, input: &Input) {

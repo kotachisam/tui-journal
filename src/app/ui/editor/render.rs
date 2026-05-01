@@ -9,24 +9,34 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState},
 };
 
+use ratatui::buffer::Buffer;
+use ratatui::style::Modifier;
+use ratatui::text::Span;
+
+use backend::DataProvider;
+
+use crate::app::App;
 use crate::app::ui::Styles;
 
-use super::{Editor, EditorMode, highlight::patch_preview_highlights};
+use super::{Editor, EditorMode, MentionHitbox, highlight::patch_preview_highlights};
+use super::mention::RenderedMention;
 
 impl Editor<'_> {
-    pub fn render_widget(
+    pub fn render_widget<D: DataProvider>(
         &mut self,
         frame: &mut Frame,
         area: Rect,
         styles: &Styles,
         search_query: Option<&str>,
+        app: &App<D>,
     ) {
+        self.mention_hitboxes.clear();
         if self.show_preview {
             if self.is_active && matches!(self.mode, EditorMode::Insert) {
-                self.render_wrap_edit(frame, area, styles);
+                self.render_wrap_edit(frame, area, styles, app);
             } else {
                 self.last_wrap_width = None;
-                self.render_preview(frame, area, styles, search_query);
+                self.render_preview(frame, area, styles, search_query, app);
             }
             return;
         }
@@ -85,12 +95,13 @@ impl Editor<'_> {
         self.render_horizontal_scrollbar(frame, area);
     }
 
-    fn render_preview(
+    fn render_preview<D: DataProvider>(
         &mut self,
         frame: &mut Frame,
         area: Rect,
         styles: &Styles,
         search_query: Option<&str>,
+        app: &App<D>,
     ) {
         let mut title = "Preview".to_owned();
         if self.is_active {
@@ -121,11 +132,27 @@ impl Editor<'_> {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let content = self.get_content();
+        let raw_content = self.get_content();
+        let (rendered_content, mentions) = super::mention::substitute_mentions(
+            &raw_content,
+            &app.entries,
+            &app.settings.date_format,
+        );
         frame.render_widget(
-            MarkdownWidget::new(&content).scroll(self.preview_scroll),
+            MarkdownWidget::new(&rendered_content).scroll(self.preview_scroll),
             inner,
         );
+
+        if !mentions.is_empty() {
+            let hitboxes = patch_mention_styles(
+                frame.buffer_mut(),
+                inner,
+                &rendered_content,
+                &mentions,
+                self.preview_scroll,
+            );
+            self.mention_hitboxes.extend(hitboxes);
+        }
 
         if let Some(query) = search_query.filter(|q| !q.is_empty()) {
             patch_preview_highlights(
@@ -139,7 +166,13 @@ impl Editor<'_> {
         self.render_preview_scrollbar(frame, area, inner);
     }
 
-    fn render_wrap_edit(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
+    fn render_wrap_edit<D: DataProvider>(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        styles: &Styles,
+        app: &App<D>,
+    ) {
         let mut title = "Preview".to_owned();
         let mode_caption = match self.mode {
             EditorMode::Normal => " - NORMAL",
@@ -181,8 +214,32 @@ impl Editor<'_> {
             }
         }
 
-        let visual_lines: Vec<Line<'_>> =
-            rows.iter().map(|r| Line::raw(r.content.clone())).collect();
+        let raw_content = lines.join("\n");
+        let doc_mentions = super::mention::parse_mentions_in_doc(&raw_content);
+        let mut hitboxes: Vec<MentionHitbox> = Vec::new();
+        let visual_lines: Vec<Line<'_>> = rows
+            .iter()
+            .enumerate()
+            .map(|(row_idx, r)| {
+                let line_mentions: Vec<&super::mention::DocMention> = doc_mentions
+                    .iter()
+                    .filter(|m| m.line_idx == r.source_line)
+                    .collect();
+                if line_mentions.is_empty() {
+                    return Line::raw(r.content.clone());
+                }
+                build_wrap_styled_line(
+                    r,
+                    &line_mentions,
+                    &app.entries,
+                    inner,
+                    row_idx as u16,
+                    self.preview_scroll,
+                    &mut hitboxes,
+                )
+            })
+            .collect();
+        self.mention_hitboxes.extend(hitboxes);
         let paragraph = Paragraph::new(visual_lines).scroll((self.preview_scroll, 0));
         frame.render_widget(paragraph, inner);
 
@@ -410,6 +467,164 @@ pub(super) fn visual_to_source(rows: &[WrapRow], target_vrow: u16, vcol: u16) ->
     let row_chars = row.content.chars().count();
     let clamped = (vcol as usize).min(row_chars);
     (row.source_line, row.source_start + clamped)
+}
+
+fn read_row_chars(buf: &Buffer, area: Rect, dy: u16) -> Vec<char> {
+    (0..area.width)
+        .map(|dx| {
+            buf[(area.x + dx, area.y + dy)]
+                .symbol()
+                .chars()
+                .next()
+                .unwrap_or(' ')
+        })
+        .collect()
+}
+
+fn find_label_after(
+    buf: &Buffer,
+    area: Rect,
+    label: &[char],
+    start_row: u16,
+    start_col: u16,
+) -> Option<(u16, u16)> {
+    if label.is_empty() || area.width == 0 || area.height == 0 {
+        return None;
+    }
+    for dy in start_row..area.height {
+        let row_chars = read_row_chars(buf, area, dy);
+        let scan_start = if dy == start_row { start_col as usize } else { 0 };
+        if scan_start + label.len() > row_chars.len() {
+            continue;
+        }
+        for offset in scan_start..=row_chars.len().saturating_sub(label.len()) {
+            if row_chars[offset..offset + label.len()] == *label {
+                return Some((dy, offset as u16));
+            }
+        }
+    }
+    None
+}
+
+pub(super) fn patch_mention_styles(
+    buf: &mut Buffer,
+    area: Rect,
+    _rendered_content: &str,
+    mentions: &[RenderedMention],
+    _scroll: u16,
+) -> Vec<MentionHitbox> {
+    let link_style = ratatui::style::Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
+    let missing_style = ratatui::style::Style::default()
+        .add_modifier(Modifier::CROSSED_OUT)
+        .add_modifier(Modifier::DIM);
+
+    let mut hitboxes = Vec::new();
+    let mut cursor_row: u16 = 0;
+    let mut cursor_col: u16 = 0;
+
+    for mention in mentions {
+        let label_chars: Vec<char> = mention.label.chars().collect();
+        let Some((row, col_start)) =
+            find_label_after(buf, area, &label_chars, cursor_row, cursor_col)
+        else {
+            continue;
+        };
+        let style = if mention.missing { missing_style } else { link_style };
+        let label_len = label_chars.len() as u16;
+        let col_end = (col_start + label_len).min(area.width);
+        for dx in col_start..col_end {
+            let cell_x = area.x + dx;
+            let cell_y = area.y + row;
+            let new_style = buf[(cell_x, cell_y)].style().patch(style);
+            buf[(cell_x, cell_y)].set_style(new_style);
+        }
+        hitboxes.push(MentionHitbox {
+            row: area.y + row,
+            col_start: area.x + col_start,
+            col_end: area.x + col_end,
+            id: mention.id,
+            missing: mention.missing,
+        });
+        cursor_row = row;
+        cursor_col = col_end;
+    }
+
+    hitboxes
+}
+
+fn build_wrap_styled_line<'a>(
+    row: &WrapRow,
+    line_mentions: &[&super::mention::DocMention],
+    entries: &[backend::Entry],
+    inner: Rect,
+    row_idx: u16,
+    preview_scroll: u16,
+    hitboxes: &mut Vec<MentionHitbox>,
+) -> ratatui::text::Line<'a> {
+    let row_chars: Vec<char> = row.content.chars().collect();
+    let row_start = row.source_start;
+    let row_end = row_start + row_chars.len();
+
+    let link_style = ratatui::style::Style::default()
+        .fg(ratatui::style::Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
+    let missing_style = ratatui::style::Style::default()
+        .add_modifier(Modifier::CROSSED_OUT)
+        .add_modifier(Modifier::DIM);
+
+    let mut spans: Vec<Span<'a>> = Vec::new();
+    let mut cursor: usize = 0;
+
+    let mut on_row: Vec<&super::mention::DocMention> = line_mentions
+        .iter()
+        .copied()
+        .filter(|m| m.char_range.start < row_end && m.char_range.end > row_start)
+        .collect();
+    on_row.sort_by_key(|m| m.char_range.start);
+
+    for m in on_row {
+        let local_start = m.char_range.start.saturating_sub(row_start);
+        let local_end = (m.char_range.end - row_start).min(row_chars.len());
+        if local_start >= row_chars.len() || local_start < cursor {
+            continue;
+        }
+        if cursor < local_start {
+            let pre: String = row_chars[cursor..local_start].iter().collect();
+            spans.push(Span::raw(pre));
+        }
+        let token: String = row_chars[local_start..local_end].iter().collect();
+        let missing = !entries
+            .iter()
+            .any(|e| e.id == m.id && e.deleted_at.is_none());
+        let style = if missing { missing_style } else { link_style };
+        spans.push(Span::styled(token, style));
+
+        if row_idx >= preview_scroll {
+            let visual_row = row_idx - preview_scroll;
+            if visual_row < inner.height {
+                let col_start = inner.x + local_start as u16;
+                let col_end = inner.x + (local_end as u16).min(inner.width);
+                hitboxes.push(MentionHitbox {
+                    row: inner.y + visual_row,
+                    col_start,
+                    col_end,
+                    id: m.id,
+                    missing,
+                });
+            }
+        }
+        cursor = local_end;
+    }
+    if cursor < row_chars.len() {
+        let tail: String = row_chars[cursor..].iter().collect();
+        spans.push(Span::raw(tail));
+    }
+    if spans.is_empty() {
+        return ratatui::text::Line::raw(row.content.clone());
+    }
+    ratatui::text::Line::from(spans)
 }
 
 #[cfg(test)]

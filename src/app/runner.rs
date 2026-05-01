@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use crossterm::event::{Event, EventStream, KeyEventKind};
+use crossterm::event::{Event, EventStream, KeyEventKind, MouseButton, MouseEventKind};
 use ratatui::{Terminal, backend::Backend};
 
 use crate::app::{App, UIComponents};
@@ -424,15 +424,23 @@ async fn handle_input<D: DataProvider>(
     app: &mut App<D>,
     ui_components: &mut UIComponents<'_>,
 ) -> Result<HandleInputReturnType> {
-    if let Event::Key(key) = event {
-        match key.kind {
+    match event {
+        Event::Key(key) => match key.kind {
             KeyEventKind::Press => {
                 let input = Input::from(&key);
                 ui_components.handle_input(&input, app).await
             }
             KeyEventKind::Repeat | KeyEventKind::Release => Ok(HandleInputReturnType::Ignore),
+        },
+        Event::Mouse(mouse) => {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                ui_components
+                    .handle_mouse_click(mouse.column, mouse.row, app)
+                    .await
+            } else {
+                Ok(HandleInputReturnType::Ignore)
+            }
         }
-    } else {
-        Ok(HandleInputReturnType::NotFound)
+        _ => Ok(HandleInputReturnType::NotFound),
     }
 }

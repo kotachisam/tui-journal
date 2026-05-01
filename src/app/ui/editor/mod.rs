@@ -10,6 +10,15 @@ mod render;
 
 pub use mode::EditorMode;
 
+#[derive(Clone, Debug)]
+pub struct MentionHitbox {
+    pub row: u16,
+    pub col_start: u16,
+    pub col_end: u16,
+    pub id: u32,
+    pub missing: bool,
+}
+
 pub struct Editor<'a> {
     text_area: TextArea<'a>,
     mode: EditorMode,
@@ -20,6 +29,8 @@ pub struct Editor<'a> {
     show_preview: bool,
     last_wrap_width: Option<u16>,
     mention: Option<mention::MentionState>,
+    pub mention_hitboxes: Vec<MentionHitbox>,
+    pub pending_mention_follow: Option<u32>,
 }
 
 impl<'a> Editor<'a> {
@@ -36,6 +47,8 @@ impl<'a> Editor<'a> {
             preview_scroll: 0,
             last_wrap_width: None,
             mention: None,
+            mention_hitboxes: Vec::new(),
+            pending_mention_follow: None,
         }
     }
 

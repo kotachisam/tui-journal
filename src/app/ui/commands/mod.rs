@@ -82,6 +82,9 @@ pub enum UICommand {
     CycleViewCategoryNext,
     /// Cycles the entries-list view to the previous category tab.
     CycleViewCategoryPrev,
+    /// Pending-only: triggered by Enter/click on a mention link. Target entry id
+    /// is stored on `UIComponents.pending_mention_target`.
+    FollowMention,
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +271,10 @@ impl UICommand {
                 "Previous category tab",
                 "Cycle the entries-list view to the previous category",
             ),
+            UICommand::FollowMention => CommandInfo::new(
+                "Follow mention",
+                "Navigate to the entry referenced by the mention link",
+            ),
         }
     }
 
@@ -339,6 +346,9 @@ impl UICommand {
             UICommand::ShowRevisionHistory => exec_show_revision_history(ui_components, app).await,
             UICommand::CycleViewCategoryNext => exec_cycle_view_category(app, 1),
             UICommand::CycleViewCategoryPrev => exec_cycle_view_category(app, -1),
+            UICommand::FollowMention => {
+                unreachable!("FollowMention is pending-only, never dispatched as a keymap")
+            }
         }
     }
 
@@ -465,8 +475,33 @@ impl UICommand {
             UICommand::CycleViewCategoryNext | UICommand::CycleViewCategoryPrev => {
                 unreachable!("Category cycle commands have no msgbox continuation")
             }
+            UICommand::FollowMention => {
+                continue_follow_mention(ui_components, app, msg_box_result).await
+            }
         }
     }
+}
+
+async fn continue_follow_mention<D: DataProvider>(
+    ui_components: &mut UIComponents<'_>,
+    app: &mut App<D>,
+    msg_box_result: MsgBoxResult,
+) -> CmdResult {
+    let id = match ui_components.pending_mention_target.take() {
+        Some(id) => id,
+        None => return Ok(HandleInputReturnType::Handled),
+    };
+    match msg_box_result {
+        MsgBoxResult::Ok | MsgBoxResult::Cancel => {}
+        MsgBoxResult::Yes => {
+            exec_save_entry_content(ui_components, app).await?;
+            ui_components.set_current_entry(Some(id), app);
+        }
+        MsgBoxResult::No => {
+            ui_components.set_current_entry(Some(id), app);
+        }
+    }
+    Ok(HandleInputReturnType::Handled)
 }
 
 /// Checks for unsaved and show dialog of there is any, other way it calls the `cmd_func`

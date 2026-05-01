@@ -5,6 +5,7 @@ use app::ui::Styles;
 use clap::Parser;
 use crossterm::{
     execute,
+    event::{DisableMouseCapture, EnableMouseCapture},
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -40,7 +41,7 @@ async fn main() -> Result<()> {
         Styles::load(custom_config.as_ref()).context("Error while retrieving app styles")?;
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -54,7 +55,7 @@ async fn main() -> Result<()> {
 
     // restore terminal
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     Ok(())
@@ -66,7 +67,7 @@ fn chain_panic_hook() {
 
     std::panic::set_hook(Box::new(move |panic| {
         disable_raw_mode().unwrap();
-        execute!(io::stdout(), LeaveAlternateScreen).unwrap();
+        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen).unwrap();
         original_hook(panic);
     }));
 }
