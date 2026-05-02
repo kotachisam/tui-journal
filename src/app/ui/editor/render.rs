@@ -569,6 +569,7 @@ pub(super) fn patch_mention_styles(
             col_end: area.x + col_end,
             id: mention.id,
             missing: mention.missing,
+            anchor: mention.anchor.clone(),
         });
         cursor_row = row;
         cursor_col = col_end;
@@ -610,11 +611,13 @@ fn patch_raw_editor_mentions(
                 if j > i + 4 {
                     let id_str: String = row_chars[i + 4..j].iter().collect();
                     if let Ok(id) = id_str.parse::<u32>() {
+                        let (token_end, anchor) =
+                            super::mention::parse_anchor_suffix_buffer(&row_chars, j);
                         let missing = !entries
                             .iter()
                             .any(|e| e.id == id && e.deleted_at.is_none());
                         let style = if missing { missing_style } else { link_style };
-                        for dx in i..j {
+                        for dx in i..token_end {
                             let cell_x = inner.x + dx as u16;
                             let cell_y = inner.y + dy;
                             let new_style = buf[(cell_x, cell_y)].style().patch(style);
@@ -623,11 +626,12 @@ fn patch_raw_editor_mentions(
                         hitboxes.push(MentionHitbox {
                             row: inner.y + dy,
                             col_start: inner.x + i as u16,
-                            col_end: inner.x + j as u16,
+                            col_end: inner.x + token_end as u16,
                             id,
                             missing,
+                            anchor,
                         });
-                        i = j;
+                        i = token_end;
                         continue;
                     }
                 }
@@ -697,6 +701,7 @@ fn build_wrap_styled_line<'a>(
                     col_end,
                     id: m.id,
                     missing,
+                    anchor: m.anchor.clone(),
                 });
             }
         }

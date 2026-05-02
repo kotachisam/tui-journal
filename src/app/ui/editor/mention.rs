@@ -76,6 +76,7 @@ impl MentionState {
 pub struct ParsedMention {
     pub char_range: std::ops::Range<usize>,
     pub id: u32,
+    pub anchor: Option<String>,
 }
 
 pub fn parse_mentions_in_line(line: &str) -> Vec<ParsedMention> {
@@ -112,21 +113,72 @@ pub fn parse_mentions_in_line(line: &str) -> Vec<ParsedMention> {
             i += 1;
             continue;
         }
-        let after_ok = j == chars.len() || !chars[j].is_alphanumeric();
-        if !after_ok {
+        let digit_str: String = chars[digits_start..j].iter().collect();
+        let Ok(id) = digit_str.parse::<u32>() else {
+            i = j;
+            continue;
+        };
+
+        let (token_end, anchor) = parse_anchor_suffix(&chars, j);
+        let after_token = token_end == chars.len() || !chars[token_end].is_alphanumeric();
+        if !after_token {
             i = j;
             continue;
         }
-        let digit_str: String = chars[digits_start..j].iter().collect();
-        if let Ok(id) = digit_str.parse::<u32>() {
-            out.push(ParsedMention {
-                char_range: i..j,
-                id,
-            });
-        }
-        i = j;
+
+        out.push(ParsedMention {
+            char_range: i..token_end,
+            id,
+            anchor,
+        });
+        i = token_end;
     }
     out
+}
+
+pub(super) fn parse_anchor_suffix_buffer(
+    chars: &[char],
+    start: usize,
+) -> (usize, Option<String>) {
+    parse_anchor_suffix(chars, start)
+}
+
+fn parse_anchor_suffix(chars: &[char], start: usize) -> (usize, Option<String>) {
+    if start >= chars.len() || chars[start] != '(' {
+        return (start, None);
+    }
+    let mut k = start + 1;
+    if k >= chars.len() || chars[k] != '"' {
+        return (start, None);
+    }
+    k += 1;
+    let mut anchor = String::new();
+    while k < chars.len() {
+        match chars[k] {
+            '"' => {
+                if k + 1 < chars.len() && chars[k + 1] == ')' {
+                    return (k + 2, Some(anchor));
+                }
+                return (start, None);
+            }
+            '\\' => {
+                if k + 1 >= chars.len() {
+                    return (start, None);
+                }
+                match chars[k + 1] {
+                    '"' => anchor.push('"'),
+                    '\\' => anchor.push('\\'),
+                    _ => return (start, None),
+                }
+                k += 2;
+            }
+            c => {
+                anchor.push(c);
+                k += 1;
+            }
+        }
+    }
+    (start, None)
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -134,6 +186,7 @@ pub struct DocMention {
     pub line_idx: usize,
     pub char_range: std::ops::Range<usize>,
     pub id: u32,
+    pub anchor: Option<String>,
 }
 
 pub fn parse_mentions_in_doc(content: &str) -> Vec<DocMention> {
@@ -152,6 +205,7 @@ pub fn parse_mentions_in_doc(content: &str) -> Vec<DocMention> {
                 line_idx,
                 char_range: parsed.char_range,
                 id: parsed.id,
+                anchor: parsed.anchor,
             });
         }
     }
@@ -176,6 +230,7 @@ pub struct RenderedMention {
     pub id: u32,
     pub label: String,
     pub missing: bool,
+    pub anchor: Option<String>,
 }
 
 pub fn substitute_mentions(
@@ -233,6 +288,7 @@ pub fn substitute_mentions(
                 id: m.id,
                 label,
                 missing,
+                anchor: m.anchor.clone(),
             });
             cursor = m.char_range.end;
         }
@@ -430,8 +486,33 @@ pub fn filter_candidates(sources: &[CandidateSource], query: &str) -> Vec<Mentio
         .collect()
 }
 
-pub fn format_mention_token(id: u32) -> String {
-    format!("@id:{id}")
+pub fn format_mention_token(id: u32, anchor: Option<&str>) -> String {
+    match anchor.filter(|s| !s.is_empty()) {
+        Some(s) => {
+            let mut escaped = String::with_capacity(s.len());
+            for c in s.chars() {
+                match c {
+                    '\\' => escaped.push_str("\\\\"),
+                    '"' => escaped.push_str("\\\""),
+                    other => escaped.push(other),
+                }
+            }
+            format!("@id:{id}(\"{escaped}\")")
+        }
+        None => format!("@id:{id}"),
+    }
+}
+
+pub fn find_anchor_line(content: &str, anchor: &str) -> Option<u16> {
+    if anchor.is_empty() {
+        return None;
+    }
+    let needle = anchor.to_lowercase();
+    content.lines().enumerate().find_map(|(idx, line)| {
+        line.to_lowercase()
+            .contains(&needle)
+            .then_some(idx as u16)
+    })
 }
 
 fn highlight_snippet<'a>(snippet: &'a str, match_indices: &[usize]) -> Line<'a> {
@@ -754,7 +835,114 @@ mod tests {
 
     #[test]
     fn format_token_shape() {
-        assert_eq!(format_mention_token(246), "@id:246");
+        assert_eq!(format_mention_token(246, None), "@id:246");
+    }
+
+    #[test]
+    fn format_token_with_anchor() {
+        assert_eq!(
+            format_mention_token(246, Some("naval")),
+            "@id:246(\"naval\")"
+        );
+    }
+
+    #[test]
+    fn format_token_escapes_quote_and_backslash() {
+        assert_eq!(
+            format_mention_token(1, Some("a\"b\\c")),
+            "@id:1(\"a\\\"b\\\\c\")"
+        );
+    }
+
+    #[test]
+    fn format_token_empty_anchor_treated_as_none() {
+        assert_eq!(format_mention_token(1, Some("")), "@id:1");
+    }
+
+    #[test]
+    fn parse_token_with_anchor() {
+        let result = parse_mentions_in_line("see @id:42(\"naval\") here");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 42);
+        assert_eq!(result[0].anchor.as_deref(), Some("naval"));
+        assert_eq!(result[0].char_range, 4..19);
+    }
+
+    #[test]
+    fn parse_token_with_escaped_quote_in_anchor() {
+        let result = parse_mentions_in_line("@id:1(\"with \\\"quote\\\"\")");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].anchor.as_deref(), Some("with \"quote\""));
+    }
+
+    #[test]
+    fn parse_token_with_escaped_backslash_in_anchor() {
+        let result = parse_mentions_in_line("@id:1(\"path\\\\here\")");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].anchor.as_deref(), Some("path\\here"));
+    }
+
+    #[test]
+    fn parse_malformed_unclosed_paren_falls_back_to_bare() {
+        let result = parse_mentions_in_line("@id:7(\"open and rest of line");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 7);
+        assert!(result[0].anchor.is_none());
+        assert_eq!(result[0].char_range, 0..5);
+    }
+
+    #[test]
+    fn parse_malformed_missing_close_paren_falls_back_to_bare() {
+        let result = parse_mentions_in_line("@id:7(\"closed quote\" but no paren");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 7);
+        assert!(result[0].anchor.is_none());
+    }
+
+    #[test]
+    fn parse_two_anchored_tokens_in_line() {
+        let result =
+            parse_mentions_in_line("@id:1(\"naval\") and @id:5(\"books\")");
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].anchor.as_deref(), Some("naval"));
+        assert_eq!(result[1].anchor.as_deref(), Some("books"));
+    }
+
+    #[test]
+    fn parse_anchored_then_punctuation_ok() {
+        let result = parse_mentions_in_line("see @id:7(\"naval\"), then more");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].id, 7);
+        assert_eq!(result[0].anchor.as_deref(), Some("naval"));
+    }
+
+    #[test]
+    fn find_anchor_line_basic_hit() {
+        assert_eq!(find_anchor_line("foo\nbar naval baz\nqux", "naval"), Some(1));
+    }
+
+    #[test]
+    fn find_anchor_line_case_insensitive() {
+        assert_eq!(find_anchor_line("Foo Naval Bar", "naval"), Some(0));
+        assert_eq!(find_anchor_line("foo NAVAL bar", "Naval"), Some(0));
+    }
+
+    #[test]
+    fn find_anchor_line_not_found() {
+        assert_eq!(find_anchor_line("foo bar baz", "naval"), None);
+    }
+
+    #[test]
+    fn find_anchor_line_empty_anchor_returns_none() {
+        assert_eq!(find_anchor_line("anything here", ""), None);
+    }
+
+    #[test]
+    fn find_anchor_line_returns_first_match_only() {
+        assert_eq!(
+            find_anchor_line("naval one\nnaval two\nnaval three", "naval"),
+            Some(0)
+        );
     }
 
     #[test]

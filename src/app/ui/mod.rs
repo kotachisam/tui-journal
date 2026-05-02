@@ -5,7 +5,7 @@ use crossterm::event::KeyCode;
 pub use themes::Styles;
 
 use self::{
-    editor::{Editor, EditorMode},
+    editor::{Editor, EditorMode, MentionFollow},
     entries_list::EntriesList,
     entry_popup::{EntryPopup, EntryPopupInputReturn},
     export_popup::ExportPopup,
@@ -110,7 +110,7 @@ pub struct UIComponents<'a> {
     pending_command: Option<UICommand>,
     pub current_toast: Option<Toast>,
     pub pending_exit_after_push: bool,
-    pub pending_mention_target: Option<u32>,
+    pub pending_mention_target: Option<MentionFollow>,
 }
 
 impl UIComponents<'_> {
@@ -179,30 +179,66 @@ impl UIComponents<'_> {
             self.show_toast(format!("Entry @id:{} not found", hit.id));
             return Ok(HandleInputReturnType::Handled);
         }
-        self.follow_mention(hit.id, app).await?;
+        self.follow_mention(
+            MentionFollow {
+                id: hit.id,
+                anchor: hit.anchor,
+            },
+            app,
+        )
+        .await?;
         Ok(HandleInputReturnType::Handled)
     }
 
     async fn follow_mention<D: DataProvider>(
         &mut self,
-        id: u32,
+        target: MentionFollow,
         app: &mut App<D>,
     ) -> Result<()> {
         let exists = app
             .entries
             .iter()
-            .any(|e| e.id == id && e.deleted_at.is_none());
+            .any(|e| e.id == target.id && e.deleted_at.is_none());
         if !exists {
-            self.show_toast(format!("Entry @id:{id} not found"));
+            self.show_toast(format!("Entry @id:{} not found", target.id));
             return Ok(());
         }
         if self.has_unsaved() {
-            self.pending_mention_target = Some(id);
+            self.pending_mention_target = Some(target);
             self.show_unsaved_msg_box(Some(UICommand::FollowMention));
         } else {
+            let id = target.id;
             self.set_current_entry(Some(id), app);
+            self.apply_mention_anchor(target.anchor.as_deref(), app);
         }
         Ok(())
+    }
+
+    pub(super) fn apply_mention_anchor_pub<D: DataProvider>(
+        &mut self,
+        anchor: Option<&str>,
+        app: &App<D>,
+    ) {
+        self.apply_mention_anchor(anchor, app);
+    }
+
+    fn apply_mention_anchor<D: DataProvider>(
+        &mut self,
+        anchor: Option<&str>,
+        app: &App<D>,
+    ) {
+        let Some(anchor) = anchor.filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Some(entry) = app.get_current_entry() else {
+            return;
+        };
+        match super::ui::editor::mention::find_anchor_line(&entry.content, anchor) {
+            Some(line) => self.editor.set_preview_scroll(line),
+            None => self.show_toast(format!(
+                "Anchor \"{anchor}\" not found in target — content may have changed"
+            )),
+        }
     }
 
     pub fn render_ui<D>(&mut self, f: &mut Frame, app: &App<D>)
@@ -297,8 +333,8 @@ impl UIComponents<'_> {
         app: &mut App<D>,
     ) -> Result<HandleInputReturnType> {
         let result = self.handle_input_inner(input, app).await;
-        if let Some(id) = self.editor.pending_mention_follow.take() {
-            self.follow_mention(id, app).await?;
+        if let Some(target) = self.editor.pending_mention_follow.take() {
+            self.follow_mention(target, app).await?;
         }
         if let Some(id) = self.editor.pending_mention_peek.take() {
             self.open_mention_peek(id);

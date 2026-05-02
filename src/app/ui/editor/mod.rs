@@ -17,6 +17,7 @@ pub struct MentionHitbox {
     pub col_end: u16,
     pub id: u32,
     pub missing: bool,
+    pub anchor: Option<String>,
 }
 
 pub struct Editor<'a> {
@@ -30,8 +31,14 @@ pub struct Editor<'a> {
     last_wrap_width: Option<u16>,
     mention: Option<mention::MentionState>,
     pub mention_hitboxes: Vec<MentionHitbox>,
-    pub pending_mention_follow: Option<u32>,
+    pub pending_mention_follow: Option<MentionFollow>,
     pub pending_mention_peek: Option<u32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct MentionFollow {
+    pub id: u32,
+    pub anchor: Option<String>,
 }
 
 impl<'a> Editor<'a> {
@@ -67,6 +74,10 @@ impl<'a> Editor<'a> {
     #[inline]
     pub fn is_prioritized(&self) -> bool {
         matches!(self.mode, EditorMode::Insert | EditorMode::Visual)
+    }
+
+    pub fn set_preview_scroll(&mut self, line: u16) {
+        self.preview_scroll = line;
     }
 
     pub fn set_active(&mut self, active: bool) {

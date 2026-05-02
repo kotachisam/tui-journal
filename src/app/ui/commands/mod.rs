@@ -500,18 +500,20 @@ async fn continue_follow_mention<D: DataProvider>(
     app: &mut App<D>,
     msg_box_result: MsgBoxResult,
 ) -> CmdResult {
-    let id = match ui_components.pending_mention_target.take() {
-        Some(id) => id,
+    let target = match ui_components.pending_mention_target.take() {
+        Some(t) => t,
         None => return Ok(HandleInputReturnType::Handled),
     };
     match msg_box_result {
         MsgBoxResult::Ok | MsgBoxResult::Cancel => {}
         MsgBoxResult::Yes => {
             exec_save_entry_content(ui_components, app).await?;
-            ui_components.set_current_entry(Some(id), app);
+            ui_components.set_current_entry(Some(target.id), app);
+            ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
         }
         MsgBoxResult::No => {
-            ui_components.set_current_entry(Some(id), app);
+            ui_components.set_current_entry(Some(target.id), app);
+            ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
         }
     }
     Ok(HandleInputReturnType::Handled)
