@@ -111,14 +111,6 @@ impl Editor<'_> {
                     self.toggle_preview();
                     return Ok(HandleInputReturnType::Handled);
                 }
-                KeyCode::Enter if input.modifiers.is_empty() => {
-                    if let Some(id) = self.mention_at_cursor() {
-                        self.pending_mention_follow = Some(id);
-                        return Ok(HandleInputReturnType::Handled);
-                    }
-                    self.show_preview = false;
-                    self.preview_scroll = 0;
-                }
                 _ => {
                     self.show_preview = false;
                     self.preview_scroll = 0;
@@ -132,15 +124,6 @@ impl Editor<'_> {
         }
 
         let sync_os_clipboard = app.settings.sync_os_clipboard;
-
-        if input.key_code == KeyCode::Enter
-            && input.modifiers.is_empty()
-            && !self.is_visual_mode()
-            && let Some(id) = self.mention_at_cursor()
-        {
-            self.pending_mention_follow = Some(id);
-            return Ok(HandleInputReturnType::Handled);
-        }
 
         if is_default_navigation(input) {
             if !self.try_snap_vertical_navigation(input) {
