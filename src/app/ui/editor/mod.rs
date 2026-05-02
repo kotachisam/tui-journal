@@ -80,6 +80,10 @@ impl<'a> Editor<'a> {
         self.preview_scroll = line;
     }
 
+    pub fn preview_scroll(&self) -> u16 {
+        self.preview_scroll
+    }
+
     pub fn set_active(&mut self, active: bool) {
         if !active && self.is_visual_mode() {
             self.set_editor_mode(EditorMode::Normal);

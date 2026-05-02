@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use backend::DataProvider;
@@ -111,6 +112,7 @@ pub struct UIComponents<'a> {
     pub current_toast: Option<Toast>,
     pub pending_exit_after_push: bool,
     pub pending_mention_target: Option<MentionFollow>,
+    preview_scrolls: HashMap<u32, u16>,
 }
 
 impl UIComponents<'_> {
@@ -139,6 +141,7 @@ impl UIComponents<'_> {
             current_toast: None,
             pending_exit_after_push: false,
             pending_mention_target: None,
+            preview_scrolls: HashMap::new(),
         }
     }
 
@@ -151,6 +154,10 @@ impl UIComponents<'_> {
     }
 
     pub fn set_current_entry<D: DataProvider>(&mut self, entry_id: Option<u32>, app: &mut App<D>) {
+        if let Some(outgoing) = app.current_entry_id {
+            self.preview_scrolls
+                .insert(outgoing, self.editor.preview_scroll());
+        }
         app.current_entry_id = entry_id;
         if let Some(id) = entry_id {
             let entry_index = app.get_active_entries().position(|entry| entry.id == id);
@@ -158,6 +165,12 @@ impl UIComponents<'_> {
         }
 
         self.editor.set_current_entry(entry_id, app);
+
+        if let Some(id) = entry_id
+            && let Some(stored) = self.preview_scrolls.get(&id).copied()
+        {
+            self.editor.set_preview_scroll(stored);
+        }
     }
 
     pub async fn handle_mouse_click<D: DataProvider>(
