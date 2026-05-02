@@ -97,6 +97,10 @@ impl Editor<'_> {
         input: &Input,
         app: &App<D>,
     ) -> anyhow::Result<HandleInputReturnType> {
+        if self.try_capture_mention_peek(input) {
+            return Ok(HandleInputReturnType::Handled);
+        }
+
         if self.show_preview {
             match input.key_code {
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -327,6 +331,23 @@ impl Editor<'_> {
             return false;
         };
         self.commit_mention(candidate.id);
+        true
+    }
+
+    fn try_capture_mention_peek(&mut self, input: &Input) -> bool {
+        if input
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return false;
+        }
+        if !matches!(input.key_code, KeyCode::Char('K')) {
+            return false;
+        }
+        let Some(id) = self.mention_at_cursor() else {
+            return false;
+        };
+        self.pending_mention_peek = Some(id);
         true
     }
 

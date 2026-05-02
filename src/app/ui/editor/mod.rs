@@ -31,6 +31,7 @@ pub struct Editor<'a> {
     mention: Option<mention::MentionState>,
     pub mention_hitboxes: Vec<MentionHitbox>,
     pub pending_mention_follow: Option<u32>,
+    pub pending_mention_peek: Option<u32>,
 }
 
 impl<'a> Editor<'a> {
@@ -49,6 +50,7 @@ impl<'a> Editor<'a> {
             mention: None,
             mention_hitboxes: Vec::new(),
             pending_mention_follow: None,
+            pending_mention_peek: None,
         }
     }
 

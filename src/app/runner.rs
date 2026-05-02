@@ -36,6 +36,47 @@ pub enum HandleInputReturnType {
     Ignore,
 }
 
+#[cfg(unix)]
+struct TerminationSignals {
+    sigterm: tokio::signal::unix::Signal,
+    sigint: tokio::signal::unix::Signal,
+    sighup: tokio::signal::unix::Signal,
+}
+
+#[cfg(unix)]
+impl TerminationSignals {
+    fn new() -> Result<Self> {
+        use tokio::signal::unix::{SignalKind, signal};
+        Ok(Self {
+            sigterm: signal(SignalKind::terminate()).context("registering SIGTERM handler")?,
+            sigint: signal(SignalKind::interrupt()).context("registering SIGINT handler")?,
+            sighup: signal(SignalKind::hangup()).context("registering SIGHUP handler")?,
+        })
+    }
+
+    async fn recv(&mut self) -> &'static str {
+        tokio::select! {
+            _ = self.sigterm.recv() => "SIGTERM",
+            _ = self.sigint.recv() => "SIGINT",
+            _ = self.sighup.recv() => "SIGHUP",
+        }
+    }
+}
+
+#[cfg(not(unix))]
+struct TerminationSignals;
+
+#[cfg(not(unix))]
+impl TerminationSignals {
+    fn new() -> Result<Self> {
+        Ok(Self)
+    }
+
+    async fn recv(&mut self) -> &'static str {
+        std::future::pending().await
+    }
+}
+
 pub async fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     settings: Settings,
@@ -116,8 +157,24 @@ where
     draw_ui(terminal, &mut app, &mut ui_components)?;
 
     let mut input_stream = EventStream::new();
-    while let Some(event) = input_stream.next().await {
-        let event = event.context("Error getting input stream")?;
+    let mut termination = TerminationSignals::new()?;
+    loop {
+        let event = tokio::select! {
+            evt = input_stream.next() => match evt {
+                Some(Ok(e)) => e,
+                Some(Err(err)) => {
+                    return Err(err).context("Error getting input stream");
+                }
+                None => break,
+            },
+            sig = termination.recv() => {
+                log::info!("{sig} received, exiting gracefully");
+                if let Err(err) = app.persist_state() {
+                    log::error!("Persisting app state failed: Error info {err}");
+                }
+                return Ok(());
+            }
+        };
         match handle_input(event, &mut app, &mut ui_components).await {
             Ok(result) => {
                 match result {

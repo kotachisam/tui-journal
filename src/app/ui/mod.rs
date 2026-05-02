@@ -13,6 +13,7 @@ use self::{
     footer::{get_footer_height, render_footer},
     fuzz_find::FuzzFindPopup,
     help_popup::{HelpInputInputReturn, HelpPopup},
+    mention_peek_popup::{MentionPeekPopup, MentionPeekReturn},
     msg_box::{MsgBox, MsgBoxActions, MsgBoxType},
     revision_popup::{RevisionPopup, RevisionPopupReturn},
     sort_popup::SortPopup,
@@ -43,6 +44,7 @@ mod filter_popup;
 mod footer;
 mod fuzz_find;
 mod help_popup;
+mod mention_peek_popup;
 mod msg_box;
 mod revision_popup;
 mod sort_popup;
@@ -72,6 +74,7 @@ pub enum Popup<'a> {
     Sort(Box<SortPopup>),
     Template(Box<TemplatePopup>),
     Revision(Box<RevisionPopup>),
+    MentionPeek(Box<MentionPeekPopup>),
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +94,7 @@ enum PopupKind {
     Sort,
     Template,
     Revision,
+    MentionPeek,
 }
 
 pub struct UIComponents<'a> {
@@ -255,10 +259,10 @@ impl UIComponents<'_> {
             );
         }
 
-        self.render_popup(f);
+        self.render_popup(f, app);
     }
 
-    pub fn render_popup(&mut self, f: &mut Frame) {
+    pub fn render_popup<D: DataProvider>(&mut self, f: &mut Frame, app: &App<D>) {
         if let Some(popup) = self.popup_stack.last_mut() {
             match popup {
                 Popup::Help(help_popup) => help_popup.render_widget(f, f.area()),
@@ -276,6 +280,13 @@ impl UIComponents<'_> {
                     template_popup.render_widget(f, f.area(), &self.styles)
                 }
                 Popup::Revision(rev_popup) => rev_popup.render_widget(f, f.area(), &self.styles),
+                Popup::MentionPeek(peek_popup) => peek_popup.render_widget(
+                    f,
+                    f.area(),
+                    &self.styles,
+                    &app.entries,
+                    &app.settings.date_format,
+                ),
             }
         }
     }
@@ -288,6 +299,9 @@ impl UIComponents<'_> {
         let result = self.handle_input_inner(input, app).await;
         if let Some(id) = self.editor.pending_mention_follow.take() {
             self.follow_mention(id, app).await?;
+        }
+        if let Some(id) = self.editor.pending_mention_peek.take() {
+            self.open_mention_peek(id);
         }
         result
     }
@@ -368,6 +382,7 @@ impl UIComponents<'_> {
             Some(Popup::Sort(_)) => PopupKind::Sort,
             Some(Popup::Template(_)) => PopupKind::Template,
             Some(Popup::Revision(_)) => PopupKind::Revision,
+            Some(Popup::MentionPeek(_)) => PopupKind::MentionPeek,
             None => return Ok(HandleInputReturnType::NotFound),
         };
         match kind {
@@ -380,7 +395,20 @@ impl UIComponents<'_> {
             PopupKind::Sort => self.handle_sort_popup(input, app),
             PopupKind::Template => self.handle_template_popup(input, app),
             PopupKind::Revision => self.handle_revision_popup(input, app).await,
+            PopupKind::MentionPeek => self.handle_mention_peek_popup(input),
         }
+    }
+
+    fn handle_mention_peek_popup(&mut self, input: &Input) -> Result<HandleInputReturnType> {
+        let close = if let Some(Popup::MentionPeek(popup)) = self.popup_stack.last_mut() {
+            matches!(popup.handle_input(input), MentionPeekReturn::Close)
+        } else {
+            false
+        };
+        if close {
+            self.popup_stack.pop().expect("popup stack isn't empty");
+        }
+        Ok(HandleInputReturnType::Handled)
     }
 
     fn handle_help_popup(&mut self, input: &Input) -> Result<HandleInputReturnType> {
@@ -729,6 +757,11 @@ impl UIComponents<'_> {
     pub fn open_template_picker(&mut self, templates: Vec<super::templates::Template>) {
         let popup = TemplatePopup::new(templates);
         self.popup_stack.push(Popup::Template(Box::new(popup)));
+    }
+
+    pub fn open_mention_peek(&mut self, entry_id: u32) {
+        let popup = MentionPeekPopup::new(entry_id);
+        self.popup_stack.push(Popup::MentionPeek(Box::new(popup)));
     }
 
     pub fn open_revision_popup(

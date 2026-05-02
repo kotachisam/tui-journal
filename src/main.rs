@@ -1,11 +1,12 @@
-use std::io;
+use std::io::{self, Stdout};
 
 use anyhow::{Context, Result};
 use app::ui::Styles;
 use clap::Parser;
 use crossterm::{
-    execute,
+    cursor::Show,
     event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
@@ -17,10 +18,24 @@ mod logging;
 mod notion;
 mod settings;
 
+struct TerminalGuard {
+    terminal: Terminal<CrosstermBackend<Stdout>>,
+}
+
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        restore_terminal();
+    }
+}
+
+fn restore_terminal() {
+    let _ = disable_raw_mode();
+    let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, Show);
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Load env from local dotfiles if present. Non-overwriting, so values
-    // already exported in the shell take precedence over file contents.
+    // Non-overwriting load: shell-exported values win over dotfile contents.
     let _ = dotenvy::from_filename(".dev.vars");
     let _ = dotenvy::dotenv();
 
@@ -43,31 +58,25 @@ async fn main() -> Result<()> {
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let terminal = Terminal::new(backend)?;
+    let mut guard = TerminalGuard { terminal };
 
     chain_panic_hook();
 
-    app::run(&mut terminal, settings, styles, pending_cmd)
+    app::run(&mut guard.terminal, settings, styles, pending_cmd)
         .await
         .inspect_err(|err| {
             log::error!("[PANIC] {err:?}");
         })?;
 
-    // restore terminal
-    disable_raw_mode()?;
-    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
-    terminal.show_cursor()?;
-
     Ok(())
 }
 
-/// Clean up the terminal properly if the program panics
 fn chain_panic_hook() {
     let original_hook = std::panic::take_hook();
 
     std::panic::set_hook(Box::new(move |panic| {
-        disable_raw_mode().unwrap();
-        execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen).unwrap();
+        restore_terminal();
         original_hook(panic);
     }));
 }

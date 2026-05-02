@@ -91,6 +91,29 @@ impl Editor<'_> {
 
         frame.render_widget(&self.text_area, area);
 
+        let inner = area.inner(Margin {
+            vertical: 1,
+            horizontal: 1,
+        });
+        let hitboxes = patch_raw_editor_mentions(frame.buffer_mut(), inner, &app.entries);
+        self.mention_hitboxes.extend(hitboxes);
+
+        if let Some(mention) = self.mention.as_ref()
+            && inner.width > 0
+            && inner.height > 0
+        {
+            let (cursor_row, cursor_col) = self.text_area.cursor();
+            let anchor_row = (cursor_row as u16).min(inner.height.saturating_sub(1));
+            let anchor_col = (cursor_col as u16).min(inner.width.saturating_sub(1));
+            let anchor = Rect {
+                x: inner.x + anchor_col,
+                y: inner.y + anchor_row,
+                width: 1,
+                height: 1,
+            };
+            super::mention::render_overlay(frame, anchor, mention);
+        }
+
         self.render_vertical_scrollbar(frame, area);
         self.render_horizontal_scrollbar(frame, area);
     }
@@ -549,6 +572,68 @@ pub(super) fn patch_mention_styles(
         });
         cursor_row = row;
         cursor_col = col_end;
+    }
+
+    hitboxes
+}
+
+fn patch_raw_editor_mentions(
+    buf: &mut Buffer,
+    inner: Rect,
+    entries: &[backend::Entry],
+) -> Vec<MentionHitbox> {
+    let link_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
+    let missing_style = Style::default()
+        .add_modifier(Modifier::CROSSED_OUT)
+        .add_modifier(Modifier::DIM);
+
+    let mut hitboxes = Vec::new();
+    if inner.width == 0 || inner.height == 0 {
+        return hitboxes;
+    }
+
+    for dy in 0..inner.height {
+        let row_chars = read_row_chars(buf, inner, dy);
+        let mut i = 0;
+        while i + 4 < row_chars.len() {
+            if row_chars[i] == '@'
+                && row_chars[i + 1] == 'i'
+                && row_chars[i + 2] == 'd'
+                && row_chars[i + 3] == ':'
+            {
+                let mut j = i + 4;
+                while j < row_chars.len() && row_chars[j].is_ascii_digit() {
+                    j += 1;
+                }
+                if j > i + 4 {
+                    let id_str: String = row_chars[i + 4..j].iter().collect();
+                    if let Ok(id) = id_str.parse::<u32>() {
+                        let missing = !entries
+                            .iter()
+                            .any(|e| e.id == id && e.deleted_at.is_none());
+                        let style = if missing { missing_style } else { link_style };
+                        for dx in i..j {
+                            let cell_x = inner.x + dx as u16;
+                            let cell_y = inner.y + dy;
+                            let new_style = buf[(cell_x, cell_y)].style().patch(style);
+                            buf[(cell_x, cell_y)].set_style(new_style);
+                        }
+                        hitboxes.push(MentionHitbox {
+                            row: inner.y + dy,
+                            col_start: inner.x + i as u16,
+                            col_end: inner.x + j as u16,
+                            id,
+                            missing,
+                        });
+                        i = j;
+                        continue;
+                    }
+                }
+            }
+            i += 1;
+        }
     }
 
     hitboxes
