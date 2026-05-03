@@ -29,8 +29,23 @@ impl Drop for TerminalGuard {
 }
 
 fn restore_terminal() {
+    let _ = execute!(io::stdout(), DisableMouseCapture);
+    drain_pending_events();
     let _ = disable_raw_mode();
-    let _ = execute!(io::stdout(), DisableMouseCapture, LeaveAlternateScreen, Show);
+    let _ = execute!(io::stdout(), LeaveAlternateScreen, Show);
+}
+
+fn drain_pending_events() {
+    use std::time::{Duration, Instant};
+    let deadline = Instant::now() + Duration::from_millis(50);
+    while let Some(remaining) = deadline.checked_duration_since(Instant::now()) {
+        match crossterm::event::poll(remaining.min(Duration::from_millis(10))) {
+            Ok(true) => {
+                let _ = crossterm::event::read();
+            }
+            _ => break,
+        }
+    }
 }
 
 #[tokio::main]
