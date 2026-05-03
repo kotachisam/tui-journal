@@ -4,8 +4,10 @@ mod clipboard;
 mod content;
 mod highlight;
 mod input;
+pub(crate) mod markdown_link;
 pub(crate) mod mention;
 mod mode;
+pub(crate) mod notion_strip;
 mod render;
 
 pub use mode::EditorMode;

@@ -156,8 +156,10 @@ impl Editor<'_> {
         frame.render_widget(block, area);
 
         let raw_content = self.get_content();
+        let cleaned = super::notion_strip::strip_notion_noise(&raw_content);
+        let (linked_content, links) = super::markdown_link::substitute_markdown_links(&cleaned);
         let (rendered_content, mentions) = super::mention::substitute_mentions(
-            &raw_content,
+            &linked_content,
             &app.entries,
             &app.settings.date_format,
         );
@@ -175,6 +177,10 @@ impl Editor<'_> {
                 self.preview_scroll,
             );
             self.mention_hitboxes.extend(hitboxes);
+        }
+
+        if !links.is_empty() {
+            patch_markdown_link_styles(frame.buffer_mut(), inner, &links);
         }
 
         if let Some(query) = search_query.filter(|q| !q.is_empty()) {
@@ -576,6 +582,38 @@ pub(super) fn patch_mention_styles(
     }
 
     hitboxes
+}
+
+fn patch_markdown_link_styles(
+    buf: &mut Buffer,
+    area: Rect,
+    links: &[super::markdown_link::RenderedLink],
+) {
+    let link_style = ratatui::style::Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
+
+    let mut cursor_row: u16 = 0;
+    let mut cursor_col: u16 = 0;
+
+    for link in links {
+        let text_chars: Vec<char> = link.text.chars().collect();
+        let Some((row, col_start)) =
+            find_label_after(buf, area, &text_chars, cursor_row, cursor_col)
+        else {
+            continue;
+        };
+        let label_len = text_chars.len() as u16;
+        let col_end = (col_start + label_len).min(area.width);
+        for dx in col_start..col_end {
+            let cell_x = area.x + dx;
+            let cell_y = area.y + row;
+            let new_style = buf[(cell_x, cell_y)].style().patch(link_style);
+            buf[(cell_x, cell_y)].set_style(new_style);
+        }
+        cursor_row = row;
+        cursor_col = col_end;
+    }
 }
 
 fn patch_raw_editor_mentions(
