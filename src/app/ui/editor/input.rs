@@ -101,6 +101,10 @@ impl Editor<'_> {
             return Ok(HandleInputReturnType::Handled);
         }
 
+        if self.try_capture_mention_follow(input) {
+            return Ok(HandleInputReturnType::Handled);
+        }
+
         if self.show_preview {
             match input.key_code {
                 KeyCode::Char('j') | KeyCode::Down => {
@@ -351,14 +355,35 @@ impl Editor<'_> {
         true
     }
 
+    fn try_capture_mention_follow(&mut self, input: &Input) -> bool {
+        if input
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+        {
+            return false;
+        }
+        if !matches!(input.key_code, KeyCode::Char('F')) {
+            return false;
+        }
+        let Some((id, anchor)) = self.mention_at_cursor_with_anchor() else {
+            return false;
+        };
+        self.pending_mention_follow = Some(super::MentionFollow { id, anchor });
+        true
+    }
+
     pub(crate) fn mention_at_cursor(&self) -> Option<u32> {
+        self.mention_at_cursor_with_anchor().map(|(id, _)| id)
+    }
+
+    fn mention_at_cursor_with_anchor(&self) -> Option<(u32, Option<String>)> {
         let (cursor_line, cursor_col) = self.text_area.cursor();
         let line = self.text_area.lines().get(cursor_line)?;
         let mentions = super::mention::parse_mentions_in_line(line);
         mentions
             .into_iter()
             .find(|m| cursor_col >= m.char_range.start && cursor_col < m.char_range.end)
-            .map(|m| m.id)
+            .map(|m| (m.id, m.anchor))
     }
 
     fn dismiss_mention_on_break_char(&mut self, input: &Input) {

@@ -152,6 +152,10 @@ pub(crate) fn get_global_keymaps() -> Vec<Keymap> {
             UICommand::CycleTagFilter,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            UICommand::PopBackstack,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Char('u'), KeyModifiers::NONE),
             UICommand::Undo,
         ),

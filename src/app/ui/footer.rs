@@ -100,7 +100,7 @@ fn get_mention_hint_text<D: DataProvider>(
         _ => "(deleted)".to_string(),
     };
     Some(format!(
-        "@id:{id} → {label}{SEPARATOR}K: Peek{SEPARATOR}Click to follow"
+        "@id:{id} → {label}{SEPARATOR}F: Follow{SEPARATOR}K: Peek{SEPARATOR}Click to follow"
     ))
 }
 

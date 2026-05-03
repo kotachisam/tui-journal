@@ -87,6 +87,8 @@ pub enum UICommand {
     FollowMention,
     /// Toggles the in-session display of entry IDs next to dates in the entries list.
     ToggleEntryIdDisplay,
+    /// Pops the most recent mention-follow off the backstack and navigates back.
+    PopBackstack,
 }
 
 #[derive(Debug, Clone)]
@@ -281,6 +283,10 @@ impl UICommand {
                 "Toggle entry IDs",
                 "Show or hide entry IDs next to dates in the entries list (in-session only)",
             ),
+            UICommand::PopBackstack => CommandInfo::new(
+                "Back",
+                "Pop the most recent mention-follow off the backstack and navigate back",
+            ),
         }
     }
 
@@ -357,6 +363,10 @@ impl UICommand {
             }
             UICommand::ToggleEntryIdDisplay => {
                 ui_components.entries_list.toggle_entry_ids();
+                Ok(HandleInputReturnType::Handled)
+            }
+            UICommand::PopBackstack => {
+                ui_components.pop_backstack(app);
                 Ok(HandleInputReturnType::Handled)
             }
         }
@@ -491,6 +501,9 @@ impl UICommand {
             UICommand::ToggleEntryIdDisplay => {
                 unreachable!("ToggleEntryIdDisplay has no msgbox continuation")
             }
+            UICommand::PopBackstack => {
+                unreachable!("PopBackstack has no msgbox continuation")
+            }
         }
     }
 }
@@ -508,10 +521,12 @@ async fn continue_follow_mention<D: DataProvider>(
         MsgBoxResult::Ok | MsgBoxResult::Cancel => {}
         MsgBoxResult::Yes => {
             exec_save_entry_content(ui_components, app).await?;
+            ui_components.push_backstack(app.current_entry_id);
             ui_components.set_current_entry(Some(target.id), app);
             ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
         }
         MsgBoxResult::No => {
+            ui_components.push_backstack(app.current_entry_id);
             ui_components.set_current_entry(Some(target.id), app);
             ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
         }
