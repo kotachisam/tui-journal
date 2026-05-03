@@ -89,6 +89,8 @@ pub enum UICommand {
     ToggleEntryIdDisplay,
     /// Pops the most recent mention-follow off the backstack and navigates back.
     PopBackstack,
+    /// Jumps to today's entry if one exists; opens the new-entry popup otherwise.
+    JumpToToday,
 }
 
 #[derive(Debug, Clone)]
@@ -287,6 +289,10 @@ impl UICommand {
                 "Back",
                 "Pop the most recent mention-follow off the backstack and navigate back",
             ),
+            UICommand::JumpToToday => CommandInfo::new(
+                "Today",
+                "Jump to today's entry; open the new-entry popup if none exists",
+            ),
         }
     }
 
@@ -369,6 +375,7 @@ impl UICommand {
                 ui_components.pop_backstack(app);
                 Ok(HandleInputReturnType::Handled)
             }
+            UICommand::JumpToToday => exec_jump_to_today(ui_components, app),
         }
     }
 
@@ -504,8 +511,31 @@ impl UICommand {
             UICommand::PopBackstack => {
                 unreachable!("PopBackstack has no msgbox continuation")
             }
+            UICommand::JumpToToday => {
+                unreachable!("JumpToToday has no msgbox continuation")
+            }
         }
     }
+}
+
+fn exec_jump_to_today<D: DataProvider>(
+    ui_components: &mut UIComponents,
+    app: &mut App<D>,
+) -> CmdResult {
+    use chrono::Local;
+    let today = Local::now().date_naive();
+    let target = app
+        .entries
+        .iter()
+        .filter(|e| e.deleted_at.is_none())
+        .find(|e| e.date.with_timezone(&Local).date_naive() == today)
+        .map(|e| e.id);
+    if let Some(id) = target {
+        ui_components.set_current_entry(Some(id), app);
+    } else {
+        create_entry(ui_components, app);
+    }
+    Ok(HandleInputReturnType::Handled)
 }
 
 async fn continue_follow_mention<D: DataProvider>(

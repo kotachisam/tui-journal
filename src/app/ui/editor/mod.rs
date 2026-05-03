@@ -86,6 +86,13 @@ impl<'a> Editor<'a> {
         self.preview_scroll
     }
 
+    pub fn scroll_preview_by(&mut self, delta: i32) {
+        self.preview_scroll = match delta {
+            d if d >= 0 => self.preview_scroll.saturating_add(d as u16),
+            d => self.preview_scroll.saturating_sub((-d) as u16),
+        };
+    }
+
     pub fn set_active(&mut self, active: bool) {
         if !active && self.is_visual_mode() {
             self.set_editor_mode(EditorMode::Normal);

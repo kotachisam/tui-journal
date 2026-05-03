@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 use backend::DataProvider;
 use crossterm::event::KeyCode;
+use ratatui::layout::Rect;
 pub use themes::Styles;
 
 use self::{
@@ -65,6 +66,19 @@ pub enum ControlType {
     EntryContentTxt,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ScrollDirection {
+    Up,
+    Down,
+}
+
+fn rect_contains(rect: Rect, column: u16, row: u16) -> bool {
+    column >= rect.x
+        && column < rect.x + rect.width
+        && row >= rect.y
+        && row < rect.y + rect.height
+}
+
 pub enum Popup<'a> {
     Help(Box<HelpPopup>),
     Entry(Box<EntryPopup<'a>>),
@@ -114,6 +128,8 @@ pub struct UIComponents<'a> {
     pub pending_mention_target: Option<MentionFollow>,
     preview_scrolls: HashMap<u32, u16>,
     backstack: Backstack,
+    last_entries_list_rect: Option<Rect>,
+    last_editor_rect: Option<Rect>,
 }
 
 const BACKSTACK_CAP: usize = 50;
@@ -172,6 +188,8 @@ impl UIComponents<'_> {
             pending_mention_target: None,
             preview_scrolls: HashMap::new(),
             backstack: Backstack::default(),
+            last_entries_list_rect: None,
+            last_editor_rect: None,
         }
     }
 
@@ -200,6 +218,46 @@ impl UIComponents<'_> {
             && let Some(stored) = self.preview_scrolls.get(&id).copied()
         {
             self.editor.set_preview_scroll(stored);
+        }
+    }
+
+    pub fn handle_mouse_scroll<D: DataProvider>(
+        &mut self,
+        column: u16,
+        row: u16,
+        direction: ScrollDirection,
+        app: &mut App<D>,
+    ) {
+        let in_entries = self
+            .last_entries_list_rect
+            .is_some_and(|r| rect_contains(r, column, row));
+        let in_editor = self
+            .last_editor_rect
+            .is_some_and(|r| rect_contains(r, column, row));
+
+        match (in_entries, in_editor, direction) {
+            (true, _, ScrollDirection::Up) => self.move_entries_selection(-1, app),
+            (true, _, ScrollDirection::Down) => self.move_entries_selection(1, app),
+            (_, true, ScrollDirection::Up) => self.editor.scroll_preview_by(-3),
+            (_, true, ScrollDirection::Down) => self.editor.scroll_preview_by(3),
+            _ => {}
+        }
+    }
+
+    fn move_entries_selection<D: DataProvider>(&mut self, delta: i32, app: &mut App<D>) {
+        let active_ids: Vec<u32> = app.get_active_entries().map(|e| e.id).collect();
+        if active_ids.is_empty() {
+            return;
+        }
+        let current_idx = app
+            .current_entry_id
+            .and_then(|id| active_ids.iter().position(|&x| x == id))
+            .unwrap_or(0) as i32;
+        let next_idx = (current_idx + delta)
+            .clamp(0, (active_ids.len() as i32) - 1) as usize;
+        let next_id = active_ids[next_idx];
+        if Some(next_id) != app.current_entry_id {
+            self.set_current_entry(Some(next_id), app);
         }
     }
 
@@ -314,9 +372,12 @@ impl UIComponents<'_> {
             .split(f.area());
 
         render_footer(f, chunks[1], self, app);
+        self.last_entries_list_rect = None;
+        self.last_editor_rect = None;
         if app.state.full_screen {
             match self.active_control {
                 ControlType::EntriesList => {
+                    self.last_entries_list_rect = Some(chunks[0]);
                     self.entries_list.render_widget(
                         f,
                         chunks[0],
@@ -326,6 +387,7 @@ impl UIComponents<'_> {
                     );
                 }
                 ControlType::EntryContentTxt => {
+                    self.last_editor_rect = Some(chunks[0]);
                     self.editor.render_widget(
                         f,
                         chunks[0],
@@ -340,6 +402,8 @@ impl UIComponents<'_> {
                 .direction(Direction::Horizontal)
                 .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
                 .split(chunks[0]);
+            self.last_entries_list_rect = Some(entries_chunks[0]);
+            self.last_editor_rect = Some(entries_chunks[1]);
             self.entries_list.render_widget(
                 f,
                 entries_chunks[0],

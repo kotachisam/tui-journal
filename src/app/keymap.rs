@@ -193,6 +193,10 @@ pub fn get_entries_list_keymaps() -> Vec<Keymap> {
             UICommand::ShowTemplatePicker,
         ),
         Keymap::new(
+            Input::new(KeyCode::Char('T'), KeyModifiers::SHIFT),
+            UICommand::JumpToToday,
+        ),
+        Keymap::new(
             Input::new(KeyCode::Char('h'), KeyModifiers::NONE),
             UICommand::ShowRevisionHistory,
         ),

@@ -192,7 +192,8 @@ impl Editor<'_> {
             );
         }
 
-        self.render_preview_scrollbar(frame, area, inner);
+        let total_rows = estimate_visual_rows(&rendered_content, inner.width);
+        self.render_preview_scrollbar(frame, area, inner, total_rows);
     }
 
     fn render_wrap_edit<D: DataProvider>(
@@ -291,16 +292,24 @@ impl Editor<'_> {
                 super::mention::render_overlay(frame, anchor, mention);
             }
         }
+
+        let total_rows = (rows.len() as u16).max(1);
+        self.render_preview_scrollbar(frame, area, inner, total_rows);
     }
 
-    fn render_preview_scrollbar(&mut self, frame: &mut Frame, area: Rect, inner: Rect) {
-        let total_lines = self.text_area.lines().len();
-        if total_lines as u16 <= inner.height {
+    fn render_preview_scrollbar(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        inner: Rect,
+        total_rows: u16,
+    ) {
+        if total_rows <= inner.height {
             return;
         }
 
         let mut state = ScrollbarState::default()
-            .content_length(total_lines)
+            .content_length(total_rows as usize)
             .position(self.preview_scroll as usize);
 
         let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
@@ -496,6 +505,22 @@ pub(super) fn visual_to_source(rows: &[WrapRow], target_vrow: u16, vcol: u16) ->
     let row_chars = row.content.chars().count();
     let clamped = (vcol as usize).min(row_chars);
     (row.source_line, row.source_start + clamped)
+}
+
+fn estimate_visual_rows(content: &str, width: u16) -> u16 {
+    if width == 0 {
+        return 0;
+    }
+    let mut total: u32 = 0;
+    let width_u32 = width as u32;
+    for line in content.lines() {
+        let chars = line.chars().count() as u32;
+        total += chars.div_ceil(width_u32).max(1);
+    }
+    if content.ends_with('\n') {
+        total = total.saturating_add(1);
+    }
+    total.min(u16::MAX as u32) as u16
 }
 
 fn read_row_chars(buf: &Buffer, area: Rect, dy: u16) -> Vec<char> {

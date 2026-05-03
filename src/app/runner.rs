@@ -494,6 +494,22 @@ async fn handle_input<D: DataProvider>(
                 ui_components
                     .handle_mouse_click(mouse.column, mouse.row, app)
                     .await
+            } else if matches!(mouse.kind, MouseEventKind::ScrollUp) {
+                ui_components.handle_mouse_scroll(
+                    mouse.column,
+                    mouse.row,
+                    crate::app::ui::ScrollDirection::Up,
+                    app,
+                );
+                Ok(HandleInputReturnType::Handled)
+            } else if matches!(mouse.kind, MouseEventKind::ScrollDown) {
+                ui_components.handle_mouse_scroll(
+                    mouse.column,
+                    mouse.row,
+                    crate::app::ui::ScrollDirection::Down,
+                    app,
+                );
+                Ok(HandleInputReturnType::Handled)
             } else {
                 Ok(HandleInputReturnType::Ignore)
             }
