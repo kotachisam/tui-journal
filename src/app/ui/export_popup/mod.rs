@@ -2,6 +2,7 @@ use std::{env, path::PathBuf};
 
 use backend::{DataProvider, Entry};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use directories::UserDirs;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
@@ -10,7 +11,11 @@ use ratatui::{
 };
 use tui_textarea::{CursorMove, TextArea};
 
-use crate::app::{App, keymap::Input};
+use crate::app::{
+    App,
+    keymap::Input,
+    ui::file_dialog::{SaveDialogRequest, save_file_dialog},
+};
 
 use super::{PopupReturn, Styles, ui_functions::centered_rect_exact_height};
 
@@ -18,10 +23,11 @@ type ExportPopupInputReturn = PopupReturn<(PathBuf, Option<u32>)>;
 
 const FOOTER_MULTI: &str = "Enter: confirm | Esc or <Ctrl-c>: Cancel";
 const FOOTER_SINGLE: &str =
-    "↑/↓/Tab: cycle .md/.txt | Enter: confirm | Esc or <Ctrl-c>: Cancel";
+    "↑/↓/Tab: cycle ext | Ctrl-O: file picker | Enter: confirm | Esc: Cancel";
 const FOOTER_MARGINE: u16 = 8;
 const DEFAULT_FILE_NAME: &str = "tjournal_export.json";
 const CYCLE_EXTENSIONS: &[&str] = &["md", "txt"];
+const PATH_SEPARATORS: &[char] = &['/', '\\'];
 
 pub struct ExportPopup<'a> {
     path_txt: TextArea<'a>,
@@ -93,6 +99,84 @@ impl ExportPopup<'_> {
         export_popup.validate_path();
 
         Ok(export_popup)
+    }
+
+    fn current_path_string(&self) -> String {
+        self.path_txt
+            .lines()
+            .first()
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn replace_path(&mut self, new_path: String) {
+        self.path_txt = TextArea::new(vec![new_path]);
+        self.path_txt.move_cursor(CursorMove::End);
+        self.validate_path();
+    }
+
+    fn delete_segment_backward(&mut self) {
+        let content = self.current_path_string();
+        if content.is_empty() {
+            return;
+        }
+        let trimmed = content.trim_end_matches(PATH_SEPARATORS);
+        let new_content = match trimmed.rfind(PATH_SEPARATORS) {
+            Some(0) => "/".to_string(),
+            Some(idx) => trimmed[..idx].to_string(),
+            None => String::new(),
+        };
+        self.replace_path(new_content);
+    }
+
+    fn clear_to_home(&mut self) {
+        self.replace_path("~/".to_string());
+    }
+
+    fn open_save_dialog(&mut self) {
+        let current = self.current_path_string();
+        let expanded = expand_tilde(&current);
+        let default_pb = if expanded.is_empty() {
+            env::current_dir().unwrap_or_default()
+        } else {
+            PathBuf::from(&expanded)
+        };
+
+        let (default_dir, default_name) = match (default_pb.parent(), default_pb.file_name()) {
+            (Some(parent), Some(name)) if !parent.as_os_str().is_empty() => {
+                (parent.to_path_buf(), name.to_string_lossy().into_owned())
+            }
+            _ => {
+                let cwd = env::current_dir().unwrap_or_default();
+                let name = default_pb
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| String::from("export.md"));
+                (cwd, name)
+            }
+        };
+
+        let prompt = if self.is_multi_select_mode() {
+            "Save journals as"
+        } else {
+            "Save journal as"
+        };
+
+        let req = SaveDialogRequest {
+            prompt,
+            default_dir: &default_dir,
+            default_name: &default_name,
+        };
+
+        match save_file_dialog(&req) {
+            Ok(Some(path)) => {
+                self.replace_path(path.to_string_lossy().into_owned());
+            }
+            Ok(None) => {}
+            Err(err) => {
+                self.path_err_msg = format!("File picker unavailable: {err}");
+            }
+        }
     }
 
     fn cycle_extension(&mut self) {
@@ -246,6 +330,18 @@ impl ExportPopup<'_> {
             KeyCode::Esc => ExportPopupInputReturn::Cancel,
             KeyCode::Char('c') if has_ctrl => ExportPopupInputReturn::Cancel,
             KeyCode::Enter => self.handle_confirm(),
+            KeyCode::Backspace if has_ctrl => {
+                self.delete_segment_backward();
+                ExportPopupInputReturn::KeepPopup
+            }
+            KeyCode::Char('u') if has_ctrl => {
+                self.clear_to_home();
+                ExportPopupInputReturn::KeepPopup
+            }
+            KeyCode::Char('o') if has_ctrl => {
+                self.open_save_dialog();
+                ExportPopupInputReturn::KeepPopup
+            }
             KeyCode::Up | KeyCode::Down | KeyCode::Tab | KeyCode::BackTab
                 if !self.is_multi_select_mode() =>
             {
@@ -255,6 +351,7 @@ impl ExportPopup<'_> {
             _ => {
                 if self.path_txt.input(KeyEvent::from(input)) {
                     self.validate_path();
+                    self.path_txt.scroll((0, i16::MIN));
                 }
                 ExportPopupInputReturn::KeepPopup
             }
@@ -267,14 +364,32 @@ impl ExportPopup<'_> {
             return ExportPopupInputReturn::KeepPopup;
         }
 
-        let path: PathBuf = self
+        let raw = self
             .path_txt
             .lines()
             .first()
             .expect("Path Textbox should always have one line")
-            .parse()
-            .expect("PathBuf from string should never fail");
+            .clone();
+        let path = PathBuf::from(expand_tilde(&raw));
 
         ExportPopupInputReturn::Apply((path, self.entry_id))
     }
+}
+
+fn expand_tilde(input: &str) -> String {
+    if input == "~" {
+        return home_dir_string().unwrap_or_else(|| input.to_string());
+    }
+    if let Some(rest) = input.strip_prefix("~/")
+        && let Some(home) = home_dir_string()
+    {
+        let mut buf = PathBuf::from(home);
+        buf.push(rest);
+        return buf.to_string_lossy().into_owned();
+    }
+    input.to_string()
+}
+
+fn home_dir_string() -> Option<String> {
+    UserDirs::new().map(|d| d.home_dir().to_string_lossy().into_owned())
 }

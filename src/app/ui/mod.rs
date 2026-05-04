@@ -42,6 +42,7 @@ mod editor;
 mod entries_list;
 mod entry_popup;
 mod export_popup;
+mod file_dialog;
 mod file_reveal;
 mod filter_popup;
 mod footer;
