@@ -553,12 +553,12 @@ async fn continue_follow_mention<D: DataProvider>(
             exec_save_entry_content(ui_components, app).await?;
             ui_components.push_backstack(app.current_entry_id);
             ui_components.set_current_entry(Some(target.id), app);
-            ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
+            ui_components.apply_mention_anchor(target.anchor.as_deref(), app);
         }
         MsgBoxResult::No => {
             ui_components.push_backstack(app.current_entry_id);
             ui_components.set_current_entry(Some(target.id), app);
-            ui_components.apply_mention_anchor_pub(target.anchor.as_deref(), app);
+            ui_components.apply_mention_anchor(target.anchor.as_deref(), app);
         }
     }
     Ok(HandleInputReturnType::Handled)

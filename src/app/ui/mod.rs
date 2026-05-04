@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
 
 use backend::DataProvider;
 use crossterm::event::KeyCode;
@@ -7,6 +6,7 @@ use ratatui::layout::Rect;
 pub use themes::Styles;
 
 use self::{
+    backstack::Backstack,
     editor::{Editor, EditorMode, MentionFollow},
     entries_list::EntriesList,
     entry_popup::{EntryPopup, EntryPopupInputReturn},
@@ -37,10 +37,12 @@ use ratatui::{
     layout::{Constraint, Direction, Layout},
 };
 
+mod backstack;
 mod commands;
 mod editor;
 mod entries_list;
 mod entry_popup;
+mod export_handler;
 mod export_popup;
 mod file_dialog;
 mod file_reveal;
@@ -52,6 +54,7 @@ mod inline_completer;
 mod mention_peek_popup;
 mod msg_box;
 mod path_completer;
+mod popup_handlers;
 mod revision_popup;
 mod sort_popup;
 mod template_popup;
@@ -134,34 +137,6 @@ pub struct UIComponents<'a> {
     backstack: Backstack,
     last_entries_list_rect: Option<Rect>,
     last_editor_rect: Option<Rect>,
-}
-
-const BACKSTACK_CAP: usize = 50;
-
-#[derive(Default)]
-struct Backstack {
-    stack: Vec<u32>,
-}
-
-impl Backstack {
-    fn push(&mut self, id: u32, cap: usize) {
-        if self.stack.last() == Some(&id) {
-            return;
-        }
-        self.stack.push(id);
-        if self.stack.len() > cap {
-            self.stack.remove(0);
-        }
-    }
-
-    fn pop_valid<F: Fn(u32) -> bool>(&mut self, exists: F) -> Option<u32> {
-        while let Some(id) = self.stack.pop() {
-            if exists(id) {
-                return Some(id);
-            }
-        }
-        None
-    }
 }
 
 impl UIComponents<'_> {
@@ -293,75 +268,6 @@ impl UIComponents<'_> {
         )
         .await?;
         Ok(HandleInputReturnType::Handled)
-    }
-
-    async fn follow_mention<D: DataProvider>(
-        &mut self,
-        target: MentionFollow,
-        app: &mut App<D>,
-    ) -> Result<()> {
-        let exists = app
-            .entries
-            .iter()
-            .any(|e| e.id == target.id && e.deleted_at.is_none());
-        if !exists {
-            self.show_toast(format!("Entry @id:{} not found", target.id));
-            return Ok(());
-        }
-        if self.has_unsaved() {
-            self.pending_mention_target = Some(target);
-            self.show_unsaved_msg_box(Some(UICommand::FollowMention));
-        } else {
-            let id = target.id;
-            self.push_backstack(app.current_entry_id);
-            self.set_current_entry(Some(id), app);
-            self.apply_mention_anchor(target.anchor.as_deref(), app);
-        }
-        Ok(())
-    }
-
-    pub(super) fn push_backstack(&mut self, entry_id: Option<u32>) {
-        let Some(id) = entry_id else { return };
-        self.backstack.push(id, BACKSTACK_CAP);
-    }
-
-    pub(super) fn pop_backstack<D: DataProvider>(&mut self, app: &mut App<D>) {
-        let valid_ids: std::collections::HashSet<u32> = app
-            .entries
-            .iter()
-            .filter(|e| e.deleted_at.is_none())
-            .map(|e| e.id)
-            .collect();
-        if let Some(id) = self.backstack.pop_valid(|id| valid_ids.contains(&id)) {
-            self.set_current_entry(Some(id), app);
-        }
-    }
-
-    pub(super) fn apply_mention_anchor_pub<D: DataProvider>(
-        &mut self,
-        anchor: Option<&str>,
-        app: &App<D>,
-    ) {
-        self.apply_mention_anchor(anchor, app);
-    }
-
-    fn apply_mention_anchor<D: DataProvider>(
-        &mut self,
-        anchor: Option<&str>,
-        app: &App<D>,
-    ) {
-        let Some(anchor) = anchor.filter(|s| !s.is_empty()) else {
-            return;
-        };
-        let Some(entry) = app.get_current_entry() else {
-            return;
-        };
-        match super::ui::editor::mention::find_anchor_line(&entry.content, anchor) {
-            Some(line) => self.editor.set_preview_scroll(line),
-            None => self.show_toast(format!(
-                "Anchor \"{anchor}\" not found in target — content may have changed"
-            )),
-        }
     }
 
     pub fn render_ui<D>(&mut self, f: &mut Frame, app: &App<D>)
@@ -564,298 +470,6 @@ impl UIComponents<'_> {
         }
     }
 
-    fn handle_mention_peek_popup(&mut self, input: &Input) -> Result<HandleInputReturnType> {
-        let close = if let Some(Popup::MentionPeek(popup)) = self.popup_stack.last_mut() {
-            matches!(popup.handle_input(input), MentionPeekReturn::Close)
-        } else {
-            false
-        };
-        if close {
-            self.popup_stack.pop().expect("popup stack isn't empty");
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    fn handle_help_popup(&mut self, input: &Input) -> Result<HandleInputReturnType> {
-        let close = if let Some(Popup::Help(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input) == HelpInputInputReturn::Close
-        } else {
-            false
-        };
-        if close {
-            self.popup_stack.pop().expect("popup stack isn't empty");
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    async fn handle_entry_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Entry(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input, app).await?
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        let close_popup = match result {
-            EntryPopupInputReturn::Cancel => true,
-            EntryPopupInputReturn::KeepPopup => false,
-            EntryPopupInputReturn::AddEntry(entry_id) => {
-                self.set_current_entry(Some(entry_id), app);
-                true
-            }
-            EntryPopupInputReturn::UpdateCurrentEntry => {
-                self.set_current_entry(app.current_entry_id, app);
-                true
-            }
-        };
-        if close_popup {
-            self.popup_stack.pop().expect("popup stack isn't empty");
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    async fn handle_msg_box_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::MsgBox(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            msg_box::MsgBoxInputResult::Keep => Ok(HandleInputReturnType::Handled),
-            msg_box::MsgBoxInputResult::Close(msg_box_result) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-                if let Some(cmd) = self.pending_command.take() {
-                    return cmd.continue_executing(self, app, msg_box_result).await;
-                }
-                if self.pending_exit_after_push {
-                    self.pending_exit_after_push = false;
-                    return Ok(HandleInputReturnType::ExitApp);
-                }
-                Ok(HandleInputReturnType::Handled)
-            }
-            msg_box::MsgBoxInputResult::Reveal(path) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-                if let Err(err) = file_reveal::reveal_in_file_manager(&path) {
-                    self.show_err_msg(format!("Failed to reveal file: {err}"));
-                }
-                Ok(HandleInputReturnType::Handled)
-            }
-        }
-    }
-
-    async fn handle_export_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Export(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            PopupReturn::KeepPopup => {}
-            PopupReturn::Cancel => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            PopupReturn::Apply((path, entry_id)) => {
-                self.handle_export_popup_return(path, entry_id, app).await;
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    fn handle_filter_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Filter(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            PopupReturn::KeepPopup => {}
-            PopupReturn::Cancel => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            PopupReturn::Apply(filter) => {
-                app.apply_filter(filter);
-                self.popup_stack.pop().expect("popup stack isn't empty");
-
-                // Fixes a bug where the entry was not highlighted when the
-                // filter narrowed the result set down to a single entry.
-                if app.get_active_entries().count() == 1 {
-                    let entry_id = app.get_active_entries().next().map(|entry| entry.id);
-                    self.set_current_entry(entry_id, app);
-                }
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    fn handle_fuzz_find_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let (result, query) = if let Some(Popup::FuzzFind(popup)) = self.popup_stack.last_mut() {
-            let result = popup.handle_input(input);
-            let query = popup.query().map(|q| q.to_owned());
-            (result, query)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            fuzz_find::FuzzFindReturn::Close => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            fuzz_find::FuzzFindReturn::Commit => {
-                app.last_search_query = query.filter(|q| !q.is_empty());
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            fuzz_find::FuzzFindReturn::SelectEntry(entry_id) => {
-                if entry_id.is_some() {
-                    self.set_current_entry(entry_id, app);
-                }
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    fn handle_sort_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Sort(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            PopupReturn::KeepPopup => {}
-            PopupReturn::Cancel => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            PopupReturn::Apply(sort_result) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-
-                let current_entry_id = app.current_entry_id;
-                app.apply_sort(sort_result.applied_criteria, sort_result.order);
-                self.set_current_entry(current_entry_id, app);
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    fn handle_template_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Template(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            TemplatePopupReturn::Keep => {}
-            TemplatePopupReturn::Cancel => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            TemplatePopupReturn::Apply(template) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-                let entry_popup =
-                    EntryPopup::from_template(&template, &app.settings, &app.view_category);
-                self.popup_stack.push(Popup::Entry(Box::new(entry_popup)));
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    async fn handle_revision_popup<D: DataProvider>(
-        &mut self,
-        input: &Input,
-        app: &mut App<D>,
-    ) -> Result<HandleInputReturnType> {
-        let result = if let Some(Popup::Revision(popup)) = self.popup_stack.last_mut() {
-            popup.handle_input(input)
-        } else {
-            return Ok(HandleInputReturnType::Handled);
-        };
-        match result {
-            RevisionPopupReturn::Keep => {}
-            RevisionPopupReturn::Close => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-            }
-            RevisionPopupReturn::Restore(revision) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-                let target_id = revision.entry_id;
-                match app.restore_from_revision(target_id, &revision).await {
-                    Ok(()) => {
-                        self.set_current_entry(Some(target_id), app);
-                        self.show_info_msg(
-                            "Revision restored. The pre-restore state has been saved as a new entry in the history."
-                                .to_owned(),
-                        );
-                    }
-                    Err(err) => {
-                        self.show_err_msg(format!("Failed to restore revision: {err}"));
-                    }
-                }
-            }
-        }
-        Ok(HandleInputReturnType::Handled)
-    }
-
-    async fn handle_export_popup_return<D: DataProvider>(
-        &mut self,
-        path: PathBuf,
-        entry_id: Option<u32>,
-        app: &mut App<D>,
-    ) {
-        let (result, confirmation_msg) = if self.entries_list.multi_select_mode {
-            let result = app.export_entries(path.clone()).await;
-            let msg = format!("Journal(s)  exported to file {}", path.display());
-
-            (result, msg)
-        } else {
-            let entry_id = entry_id.expect("entry id must have a value in normal mode");
-            let result = app.export_entry_content(entry_id, path.clone()).await;
-            let msg = format!("Journal content exported to file {}", path.display());
-
-            (result, msg)
-        };
-
-        match result {
-            Ok(_) => {
-                self.popup_stack.pop().expect("popup stack isn't empty");
-
-                if app.settings.export.show_confirmation {
-                    self.show_export_confirmation(confirmation_msg, path);
-                }
-            }
-            Err(err) => {
-                self.show_err_msg(format!("Error while exporting journal(s). Err: {err}",));
-            }
-        };
-    }
-
-    fn show_export_confirmation(&mut self, msg: String, path: PathBuf) {
-        self.pending_command = None;
-        let msg_box = MsgBox::new(MsgBoxType::Info(msg), MsgBoxActions::OkReveal)
-            .with_reveal_path(path);
-        self.popup_stack.push(Popup::MsgBox(Box::new(msg_box)));
-    }
-
     fn set_control_is_active(&mut self, control: ControlType, is_active: bool) {
         match control {
             ControlType::EntriesList => self.entries_list.set_active(is_active),
@@ -970,75 +584,3 @@ impl UIComponents<'_> {
     }
 }
 
-#[cfg(test)]
-mod backstack_tests {
-    use super::Backstack;
-
-    #[test]
-    fn push_then_pop_returns_pushed_id() {
-        let mut b = Backstack::default();
-        b.push(7, 50);
-        assert_eq!(b.pop_valid(|_| true), Some(7));
-    }
-
-    #[test]
-    fn pop_on_empty_returns_none() {
-        let mut b = Backstack::default();
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-
-    #[test]
-    fn consecutive_same_id_dedupes() {
-        let mut b = Backstack::default();
-        b.push(7, 50);
-        b.push(7, 50);
-        assert_eq!(b.pop_valid(|_| true), Some(7));
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-
-    #[test]
-    fn cap_evicts_oldest() {
-        let mut b = Backstack::default();
-        for id in 1..=4u32 {
-            b.push(id, 3);
-        }
-        assert_eq!(b.pop_valid(|_| true), Some(4));
-        assert_eq!(b.pop_valid(|_| true), Some(3));
-        assert_eq!(b.pop_valid(|_| true), Some(2));
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-
-    #[test]
-    fn pop_skips_deleted_continues_to_valid() {
-        let mut b = Backstack::default();
-        b.push(1, 50);
-        b.push(2, 50);
-        b.push(3, 50);
-        let valid_ids = [1u32];
-        assert_eq!(b.pop_valid(|id| valid_ids.contains(&id)), Some(1));
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-
-    #[test]
-    fn pop_empties_when_all_deleted() {
-        let mut b = Backstack::default();
-        b.push(1, 50);
-        b.push(2, 50);
-        assert_eq!(b.pop_valid(|_| false), None);
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-
-    #[test]
-    fn push_after_dedupe_still_evicts_at_cap() {
-        let mut b = Backstack::default();
-        b.push(1, 3);
-        b.push(2, 3);
-        b.push(2, 3);
-        b.push(3, 3);
-        b.push(4, 3);
-        assert_eq!(b.pop_valid(|_| true), Some(4));
-        assert_eq!(b.pop_valid(|_| true), Some(3));
-        assert_eq!(b.pop_valid(|_| true), Some(2));
-        assert_eq!(b.pop_valid(|_| true), None);
-    }
-}
