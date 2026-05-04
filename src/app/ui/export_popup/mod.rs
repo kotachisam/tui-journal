@@ -14,7 +14,13 @@ use tui_textarea::{CursorMove, TextArea};
 use crate::app::{
     App,
     keymap::Input,
-    ui::file_dialog::{SaveDialogRequest, save_file_dialog},
+    ui::{
+        file_dialog::{SaveDialogRequest, save_file_dialog},
+        inline_completer::{self, InlineCompleterState},
+        path_completer::{
+            PathCandidate, PathCompletionProvider, list_directory, parse_path_context,
+        },
+    },
 };
 
 use super::{PopupReturn, Styles, ui_functions::centered_rect_exact_height};
@@ -22,18 +28,24 @@ use super::{PopupReturn, Styles, ui_functions::centered_rect_exact_height};
 type ExportPopupInputReturn = PopupReturn<(PathBuf, Option<u32>)>;
 
 const FOOTER_MULTI: &str = "Enter: confirm | Esc or <Ctrl-c>: Cancel";
+const FOOTER_MULTI_COMPLETING: &str =
+    "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
 const FOOTER_SINGLE: &str =
     "↑/↓/Tab: cycle ext | Ctrl-O: file picker | Enter: confirm | Esc: Cancel";
+const FOOTER_SINGLE_COMPLETING: &str =
+    "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
 const FOOTER_MARGINE: u16 = 8;
 const DEFAULT_FILE_NAME: &str = "tjournal_export.json";
 const CYCLE_EXTENSIONS: &[&str] = &["md", "txt"];
 const PATH_SEPARATORS: &[char] = &['/', '\\'];
+const MAX_PATH_CANDIDATES: usize = 50;
 
 pub struct ExportPopup<'a> {
     path_txt: TextArea<'a>,
     path_err_msg: String,
     entry_id: Option<u32>,
     paragraph_text: String,
+    completion: Option<InlineCompleterState<PathCandidate>>,
 }
 
 impl ExportPopup<'_> {
@@ -62,9 +74,11 @@ impl ExportPopup<'_> {
             path_err_msg: String::default(),
             entry_id: Some(entry.id),
             paragraph_text,
+            completion: None,
         };
 
         export_popup.validate_path();
+        export_popup.refresh_completion();
 
         Ok(export_popup)
     }
@@ -94,9 +108,11 @@ impl ExportPopup<'_> {
             path_err_msg: String::default(),
             entry_id: None,
             paragraph_text,
+            completion: None,
         };
 
         export_popup.validate_path();
+        export_popup.refresh_completion();
 
         Ok(export_popup)
     }
@@ -113,6 +129,59 @@ impl ExportPopup<'_> {
         self.path_txt = TextArea::new(vec![new_path]);
         self.path_txt.move_cursor(CursorMove::End);
         self.validate_path();
+        self.refresh_completion();
+    }
+
+    fn is_completing(&self) -> bool {
+        self.completion
+            .as_ref()
+            .is_some_and(|c| !c.candidates.is_empty())
+    }
+
+    fn refresh_completion(&mut self) {
+        let path_text = self.current_path_string();
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+        let home = UserDirs::new().map(|d| d.home_dir().to_path_buf());
+
+        let ctx = match parse_path_context(&path_text, home.as_deref(), &cwd) {
+            Some(ctx) => ctx,
+            None => {
+                self.completion = None;
+                return;
+            }
+        };
+
+        let candidates = list_directory(&ctx.parent_dir, &ctx.query, MAX_PATH_CANDIDATES);
+
+        if candidates.is_empty() {
+            self.completion = None;
+            return;
+        }
+
+        let preserved_idx = self.completion.as_ref().map(|c| c.selected_idx).unwrap_or(0);
+        let mut state = InlineCompleterState::new(0, 0);
+        state.candidates = candidates;
+        state.selected_idx = preserved_idx.min(state.candidates.len().saturating_sub(1));
+        state.query = ctx.query;
+        self.completion = Some(state);
+    }
+
+    fn apply_completion(&mut self) {
+        let candidate = match self.completion.as_ref().and_then(|c| c.selected().cloned()) {
+            Some(c) => c,
+            None => return,
+        };
+        let path_text = self.current_path_string();
+        let split_at = path_text
+            .rfind(PATH_SEPARATORS)
+            .map(|i| i + 1)
+            .unwrap_or(0);
+        let mut new_path = path_text[..split_at].to_string();
+        new_path.push_str(&candidate.name);
+        if candidate.is_dir {
+            new_path.push('/');
+        }
+        self.replace_path(new_path);
     }
 
     fn delete_segment_backward(&mut self) {
@@ -219,9 +288,7 @@ impl ExportPopup<'_> {
             None => new_filename,
         };
 
-        self.path_txt = TextArea::new(vec![new_path]);
-        self.path_txt.move_cursor(CursorMove::End);
-        self.validate_path();
+        self.replace_path(new_path);
     }
 
     fn validate_path(&mut self) {
@@ -249,10 +316,12 @@ impl ExportPopup<'_> {
     pub fn render_widget(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
         let mut area = centered_rect_exact_height(70, 11, area);
 
-        let footer_text = if self.is_multi_select_mode() {
-            FOOTER_MULTI
-        } else {
-            FOOTER_SINGLE
+        let completing = self.is_completing();
+        let footer_text = match (self.is_multi_select_mode(), completing) {
+            (true, true) => FOOTER_MULTI_COMPLETING,
+            (true, false) => FOOTER_MULTI,
+            (false, true) => FOOTER_SINGLE_COMPLETING,
+            (false, false) => FOOTER_SINGLE,
         };
 
         if area.width < footer_text.chars().count() as u16 + FOOTER_MARGINE {
@@ -322,14 +391,50 @@ impl ExportPopup<'_> {
             .wrap(Wrap { trim: false });
 
         frame.render_widget(footer, chunks[3]);
+
+        if let Some(state) = self.completion.as_ref() {
+            inline_completer::render_overlay(frame, chunks[1], state, &PathCompletionProvider);
+        }
     }
 
     pub fn handle_input(&mut self, input: &Input) -> ExportPopupInputReturn {
         let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
+        let completing = self.is_completing();
+
         match input.key_code {
-            KeyCode::Esc => ExportPopupInputReturn::Cancel,
             KeyCode::Char('c') if has_ctrl => ExportPopupInputReturn::Cancel,
-            KeyCode::Enter => self.handle_confirm(),
+            KeyCode::Esc => {
+                if completing {
+                    self.completion = None;
+                    ExportPopupInputReturn::KeepPopup
+                } else {
+                    ExportPopupInputReturn::Cancel
+                }
+            }
+            KeyCode::Enter => {
+                if completing {
+                    self.apply_completion();
+                    ExportPopupInputReturn::KeepPopup
+                } else {
+                    self.handle_confirm()
+                }
+            }
+            KeyCode::Tab | KeyCode::BackTab if completing => {
+                self.apply_completion();
+                ExportPopupInputReturn::KeepPopup
+            }
+            KeyCode::Up if completing => {
+                if let Some(c) = self.completion.as_mut() {
+                    c.move_up();
+                }
+                ExportPopupInputReturn::KeepPopup
+            }
+            KeyCode::Down if completing => {
+                if let Some(c) = self.completion.as_mut() {
+                    c.move_down();
+                }
+                ExportPopupInputReturn::KeepPopup
+            }
             KeyCode::Backspace if has_ctrl => {
                 self.delete_segment_backward();
                 ExportPopupInputReturn::KeepPopup
@@ -352,6 +457,7 @@ impl ExportPopup<'_> {
                 if self.path_txt.input(KeyEvent::from(input)) {
                     self.validate_path();
                     self.path_txt.scroll((0, i16::MIN));
+                    self.refresh_completion();
                 }
                 ExportPopupInputReturn::KeepPopup
             }
