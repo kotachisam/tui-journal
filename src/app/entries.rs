@@ -220,6 +220,37 @@ where
         Ok(entry_id)
     }
 
+    /// Restores an [`Entry`] preserving its original id, registering the change
+    /// to the provided [`HistoryStack`]. Used by undo to bring back an entry
+    /// that was deleted (vs. `add_entry_intern` which assigns a fresh id).
+    pub(super) async fn restore_entry_intern(
+        &mut self,
+        entry: Entry,
+        history_target: HistoryStack,
+    ) -> anyhow::Result<u32> {
+        log::trace!("Restoring entry");
+
+        let entry = self.data_provide.restore_entry(entry).await?;
+        let entry_id = entry.id;
+
+        self.log_activity_best_effort(
+            activity_actions::ENTRY_RESTORED,
+            Some(entry_id),
+            Some(&entry.title),
+        )
+        .await;
+
+        self.history.register_add(history_target, &entry);
+
+        self.entries.push(entry);
+
+        self.sort_entries();
+        self.update_filtered_out_entries();
+        self.update_colored_tags();
+
+        Ok(entry_id)
+    }
+
     /// Updates the attributes of the currently selected [`Entry`]
     pub async fn update_current_entry_attributes(
         &mut self,

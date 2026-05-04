@@ -36,17 +36,7 @@ where
             }
             Change::RemoveEntry(entry) => {
                 log::trace!("History Apply: Remove Entry: {entry:?}");
-                let id = self
-                    .add_entry_intern(
-                        entry.title,
-                        entry.date,
-                        entry.tags,
-                        entry.priority,
-                        entry.category,
-                        Some(entry.content),
-                        history_target,
-                    )
-                    .await?;
+                let id = self.restore_entry_intern(*entry, history_target).await?;
 
                 Ok(Some(id))
             }

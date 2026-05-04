@@ -70,6 +70,22 @@ impl SqliteDataProvide {
 
         Ok(Self { pool })
     }
+
+    async fn insert_tags(&self, entry_id: u32, tags: &[String]) -> Result<(), ModifyEntryError> {
+        for tag in tags {
+            sqlx::query(
+                r"INSERT INTO tags (entry_id, tag)
+                VALUES($1, $2)",
+            )
+            .bind(entry_id)
+            .bind(tag)
+            .execute(&self.pool)
+            .await
+            .with_context(|| format!("Failed to add tag '{tag}' to entry {entry_id}"))?;
+        }
+
+        Ok(())
+    }
 }
 
 impl DataProvider for SqliteDataProvide {
@@ -125,19 +141,39 @@ impl DataProvider for SqliteDataProvide {
 
         let id = row.get::<u32, _>(0);
 
-        for tag in entry.tags.iter() {
-            sqlx::query(
-                r"INSERT INTO tags (entry_id, tag)
-                VALUES($1, $2)",
-            )
-            .bind(id)
-            .bind(tag)
-            .execute(&self.pool)
-            .await
-            .with_context(|| format!("Failed to add tag '{tag}' to entry {id}"))?;
-        }
+        self.insert_tags(id, &entry.tags).await?;
 
         Ok(Entry::from_draft(id, entry))
+    }
+
+    async fn restore_entry(&self, entry: Entry) -> Result<Entry, ModifyEntryError> {
+        sqlx::query(
+            r"INSERT INTO entries (
+                id, title, date, content, priority, category,
+                sync_provider, external_id, last_synced_at, deleted_at,
+                updated_at, source_last_edited_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+        )
+        .bind(entry.id)
+        .bind(&entry.title)
+        .bind(entry.date)
+        .bind(&entry.content)
+        .bind(entry.priority)
+        .bind(&entry.category)
+        .bind(&entry.sync_provider)
+        .bind(&entry.external_id)
+        .bind(entry.last_synced_at)
+        .bind(entry.deleted_at)
+        .bind(entry.updated_at)
+        .bind(entry.source_last_edited_at)
+        .execute(&self.pool)
+        .await
+        .with_context(|| format!("Failed to restore entry {}", entry.id))?;
+
+        self.insert_tags(entry.id, &entry.tags).await?;
+
+        Ok(entry)
     }
 
     async fn remove_entry(&self, entry_id: u32) -> anyhow::Result<()> {
