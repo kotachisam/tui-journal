@@ -51,6 +51,7 @@ mod help_popup;
 mod inline_completer;
 mod mention_peek_popup;
 mod msg_box;
+mod path_completer;
 mod revision_popup;
 mod sort_popup;
 mod template_popup;
