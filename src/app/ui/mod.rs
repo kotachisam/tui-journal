@@ -42,6 +42,7 @@ mod editor;
 mod entries_list;
 mod entry_popup;
 mod export_popup;
+mod file_reveal;
 mod filter_popup;
 mod footer;
 mod fuzz_find;
@@ -635,6 +636,13 @@ impl UIComponents<'_> {
                 }
                 Ok(HandleInputReturnType::Handled)
             }
+            msg_box::MsgBoxInputResult::Reveal(path) => {
+                self.popup_stack.pop().expect("popup stack isn't empty");
+                if let Err(err) = file_reveal::reveal_in_file_manager(&path) {
+                    self.show_err_msg(format!("Failed to reveal file: {err}"));
+                }
+                Ok(HandleInputReturnType::Handled)
+            }
         }
     }
 
@@ -829,13 +837,20 @@ impl UIComponents<'_> {
                 self.popup_stack.pop().expect("popup stack isn't empty");
 
                 if app.settings.export.show_confirmation {
-                    self.show_msg_box(MsgBoxType::Info(confirmation_msg), MsgBoxActions::Ok, None);
+                    self.show_export_confirmation(confirmation_msg, path);
                 }
             }
             Err(err) => {
                 self.show_err_msg(format!("Error while exporting journal(s). Err: {err}",));
             }
         };
+    }
+
+    fn show_export_confirmation(&mut self, msg: String, path: PathBuf) {
+        self.pending_command = None;
+        let msg_box = MsgBox::new(MsgBoxType::Info(msg), MsgBoxActions::OkReveal)
+            .with_reveal_path(path);
+        self.popup_stack.push(Popup::MsgBox(Box::new(msg_box)));
     }
 
     fn set_control_is_active(&mut self, control: ControlType, is_active: bool) {

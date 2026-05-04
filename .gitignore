@@ -3,3 +3,4 @@
 .env
 .claude/
 .DS_Store
+*.md

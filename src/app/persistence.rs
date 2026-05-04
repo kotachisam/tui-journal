@@ -41,7 +41,24 @@ where
 
         let entry = self.get_entry(entry_id).expect("Entry should exist");
 
-        tokio::fs::write(path, entry.content.to_owned()).await?;
+        let is_markdown = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
+
+        let body = if is_markdown {
+            let mut buf = String::new();
+            write_frontmatter(entry, &mut buf);
+            buf.push_str(&entry.content);
+            if !entry.content.ends_with('\n') {
+                buf.push('\n');
+            }
+            buf
+        } else {
+            entry.content.to_owned()
+        };
+
+        tokio::fs::write(path, body).await?;
 
         Ok(())
     }

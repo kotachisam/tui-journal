@@ -16,9 +16,12 @@ use super::{PopupReturn, Styles, ui_functions::centered_rect_exact_height};
 
 type ExportPopupInputReturn = PopupReturn<(PathBuf, Option<u32>)>;
 
-const FOOTER_TEXT: &str = "Enter: confirm | Esc or <Ctrl-c>: Cancel";
+const FOOTER_MULTI: &str = "Enter: confirm | Esc or <Ctrl-c>: Cancel";
+const FOOTER_SINGLE: &str =
+    "↑/↓/Tab: cycle .md/.txt | Enter: confirm | Esc or <Ctrl-c>: Cancel";
 const FOOTER_MARGINE: u16 = 8;
 const DEFAULT_FILE_NAME: &str = "tjournal_export.json";
+const CYCLE_EXTENSIONS: &[&str] = &["md", "txt"];
 
 pub struct ExportPopup<'a> {
     path_txt: TextArea<'a>,
@@ -40,7 +43,7 @@ impl ExportPopup<'_> {
 
         // Add filename if it's not already defined
         if default_path.extension().is_none() {
-            default_path.push(format!("{}.txt", entry.title.as_str()));
+            default_path.push(format!("{}.md", entry.title.as_str()));
         }
 
         let mut path_txt = TextArea::new(vec![default_path.to_string_lossy().to_string()]);
@@ -92,6 +95,51 @@ impl ExportPopup<'_> {
         Ok(export_popup)
     }
 
+    fn cycle_extension(&mut self) {
+        let line = self
+            .path_txt
+            .lines()
+            .first()
+            .cloned()
+            .unwrap_or_default();
+        if line.is_empty() {
+            return;
+        }
+
+        let pb = PathBuf::from(&line);
+        let stem = pb
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        if stem.is_empty() {
+            return;
+        }
+        let parent = pb.parent().map(|p| p.to_path_buf()).filter(|p| !p.as_os_str().is_empty());
+        let current_ext = pb
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|e| e.to_ascii_lowercase());
+
+        let next_ext = match current_ext.as_deref() {
+            Some(ext) => match CYCLE_EXTENSIONS.iter().position(|e| *e == ext) {
+                Some(idx) => CYCLE_EXTENSIONS[(idx + 1) % CYCLE_EXTENSIONS.len()],
+                None => CYCLE_EXTENSIONS[0],
+            },
+            None => CYCLE_EXTENSIONS[0],
+        };
+
+        let new_filename = format!("{stem}.{next_ext}");
+        let new_path = match parent {
+            Some(p) => p.join(&new_filename).to_string_lossy().into_owned(),
+            None => new_filename,
+        };
+
+        self.path_txt = TextArea::new(vec![new_path]);
+        self.path_txt.move_cursor(CursorMove::End);
+        self.validate_path();
+    }
+
     fn validate_path(&mut self) {
         let path = self
             .path_txt
@@ -117,7 +165,13 @@ impl ExportPopup<'_> {
     pub fn render_widget(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
         let mut area = centered_rect_exact_height(70, 11, area);
 
-        if area.width < FOOTER_TEXT.len() as u16 + FOOTER_MARGINE {
+        let footer_text = if self.is_multi_select_mode() {
+            FOOTER_MULTI
+        } else {
+            FOOTER_SINGLE
+        };
+
+        if area.width < footer_text.chars().count() as u16 + FOOTER_MARGINE {
             area.height += 1;
         }
 
@@ -179,7 +233,7 @@ impl ExportPopup<'_> {
 
         frame.render_widget(&self.path_txt, chunks[1]);
 
-        let footer = Paragraph::new(FOOTER_TEXT)
+        let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: false });
 
@@ -192,6 +246,12 @@ impl ExportPopup<'_> {
             KeyCode::Esc => ExportPopupInputReturn::Cancel,
             KeyCode::Char('c') if has_ctrl => ExportPopupInputReturn::Cancel,
             KeyCode::Enter => self.handle_confirm(),
+            KeyCode::Up | KeyCode::Down | KeyCode::Tab | KeyCode::BackTab
+                if !self.is_multi_select_mode() =>
+            {
+                self.cycle_extension();
+                ExportPopupInputReturn::KeepPopup
+            }
             _ => {
                 if self.path_txt.input(KeyEvent::from(input)) {
                     self.validate_path();

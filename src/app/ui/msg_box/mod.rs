@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use crossterm::event::KeyCode;
 use ratatui::{
     Frame,
@@ -27,6 +29,7 @@ pub enum MsgBoxType {
 pub enum MsgBoxActions {
     Ok,
     OkCancel,
+    OkReveal,
     YesNo,
     YesNoCancel,
 }
@@ -39,21 +42,32 @@ pub enum MsgBoxResult {
     No,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MsgBoxInputResult {
     Keep,
     Close(MsgBoxResult),
+    Reveal(PathBuf),
 }
 
 #[derive(Debug)]
 pub struct MsgBox {
     msg_type: MsgBoxType,
     actions: MsgBoxActions,
+    reveal_path: Option<PathBuf>,
 }
 
 impl MsgBox {
     pub fn new(msg_type: MsgBoxType, actions: MsgBoxActions) -> Self {
-        Self { msg_type, actions }
+        Self {
+            msg_type,
+            actions,
+            reveal_path: None,
+        }
+    }
+
+    pub fn with_reveal_path(mut self, path: PathBuf) -> Self {
+        self.reveal_path = Some(path);
+        self
     }
 
     pub fn render_widget(&mut self, frame: &mut Frame, area: Rect, styles: &Styles) {
@@ -93,6 +107,7 @@ impl MsgBox {
         let actions_text = match self.actions {
             MsgBoxActions::Ok => "(O)k",
             MsgBoxActions::OkCancel => "(O)k , (C)ancel",
+            MsgBoxActions::OkReveal => "(O)k , (F) Reveal in Finder",
             MsgBoxActions::YesNo => "(Y)es , (N)o",
             MsgBoxActions::YesNoCancel => "(Y)es , (N)o , (C)ancel",
         };
@@ -115,6 +130,16 @@ impl MsgBox {
             MsgBoxActions::OkCancel => match input.key_code {
                 KeyCode::Enter | KeyCode::Char('o') => MsgBoxInputResult::Close(MsgBoxResult::Ok),
                 KeyCode::Esc | KeyCode::Char('c') => MsgBoxInputResult::Close(MsgBoxResult::Cancel),
+                _ => MsgBoxInputResult::Keep,
+            },
+            MsgBoxActions::OkReveal => match input.key_code {
+                KeyCode::Enter | KeyCode::Esc | KeyCode::Char('o') => {
+                    MsgBoxInputResult::Close(MsgBoxResult::Ok)
+                }
+                KeyCode::Char('f') | KeyCode::Char('F') => match &self.reveal_path {
+                    Some(path) => MsgBoxInputResult::Reveal(path.clone()),
+                    None => MsgBoxInputResult::Close(MsgBoxResult::Ok),
+                },
                 _ => MsgBoxInputResult::Keep,
             },
             MsgBoxActions::YesNo => match input.key_code {
