@@ -48,6 +48,7 @@ mod filter_popup;
 mod footer;
 mod fuzz_find;
 mod help_popup;
+mod inline_completer;
 mod mention_peek_popup;
 mod msg_box;
 mod revision_popup;

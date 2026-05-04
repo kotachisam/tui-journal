@@ -3,12 +3,37 @@ use ratatui::{
     layout::Rect,
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState},
 };
 
+use crate::app::ui::inline_completer::{self, CompletionProvider};
+
+use super::candidates::MentionCandidate;
 use super::state::MentionState;
 
 const OVERLAY_WIDTH: u16 = 80;
+
+struct MentionProvider;
+
+impl CompletionProvider for MentionProvider {
+    type Candidate = MentionCandidate;
+
+    fn render_candidate<'a>(&self, candidate: &'a Self::Candidate) -> Line<'a> {
+        highlight_snippet(&candidate.snippet, &candidate.match_indices)
+    }
+
+    fn title(&self, selected: Option<&Self::Candidate>) -> String {
+        let date_display = selected.map(|c| c.date_display.as_str()).unwrap_or("");
+        if date_display.is_empty() {
+            "Mention — Tab/Enter insert, Esc dismiss".to_owned()
+        } else {
+            format!("{date_display} — Tab/Enter insert, Esc dismiss")
+        }
+    }
+
+    fn overlay_width(&self) -> u16 {
+        OVERLAY_WIDTH
+    }
+}
 
 fn highlight_snippet<'a>(snippet: &'a str, match_indices: &[usize]) -> Line<'a> {
     if match_indices.is_empty() {
@@ -44,71 +69,16 @@ fn highlight_snippet<'a>(snippet: &'a str, match_indices: &[usize]) -> Line<'a> 
 }
 
 pub fn render_overlay(frame: &mut Frame, anchor: Rect, state: &MentionState) {
-    if state.candidates.is_empty() {
-        return;
-    }
-
-    let frame_area = frame.area();
-    let desired_height = (state.candidates.len() as u16) + 2;
-    let below_y = anchor.y + anchor.height;
-    let space_below = frame_area.height.saturating_sub(below_y);
-
-    let (overlay_y, overlay_height) = if space_below >= desired_height {
-        (below_y, desired_height)
-    } else if anchor.y >= desired_height {
-        (anchor.y - desired_height, desired_height)
-    } else {
-        (below_y, space_below.max(3).min(desired_height))
-    };
-
-    let max_width = frame_area.width.saturating_sub(2).max(20);
-    let overlay_width = OVERLAY_WIDTH.min(max_width);
-    let overlay_x = if anchor.x + overlay_width > frame_area.width {
-        frame_area.width.saturating_sub(overlay_width)
-    } else {
-        anchor.x
-    };
-    let overlay_area = Rect {
-        x: overlay_x,
-        y: overlay_y,
-        width: overlay_width,
-        height: overlay_height,
-    };
-
-    let items: Vec<ListItem> = state
-        .candidates
-        .iter()
-        .map(|c| ListItem::new(highlight_snippet(&c.snippet, &c.match_indices)))
-        .collect();
-
-    let date_display = state
-        .selected()
-        .map(|c| c.date_display.as_str())
-        .unwrap_or("");
-    let title = if date_display.is_empty() {
-        "Mention — Tab/Enter insert, Esc dismiss".to_owned()
-    } else {
-        format!("{date_display} — Tab/Enter insert, Esc dismiss")
-    };
-
-    let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(title))
-        .highlight_style(Style::default().bg(Color::LightBlue).fg(Color::Black));
-
-    let mut list_state = ListState::default();
-    list_state.select(Some(state.selected_idx));
-
-    frame.render_widget(Clear, overlay_area);
-    frame.render_stateful_widget(list, overlay_area, &mut list_state);
+    inline_completer::render_overlay(frame, anchor, state, &MentionProvider);
 }
 
 #[cfg(test)]
 mod tests {
+    use super::super::candidates::MentionCandidate;
     use super::*;
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use super::super::candidates::MentionCandidate;
 
     #[test]
     fn highlight_snippet_with_no_indices_returns_single_unstyled_span() {
