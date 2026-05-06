@@ -32,7 +32,7 @@ impl Editor<'_> {
     ) {
         self.mention_hitboxes.clear();
         if self.show_preview {
-            if self.is_active && matches!(self.mode, EditorMode::Insert) {
+            if self.is_active {
                 self.render_wrap_edit(frame, area, styles, app);
             } else {
                 self.last_wrap_width = None;

@@ -105,26 +105,6 @@ impl Editor<'_> {
             return Ok(HandleInputReturnType::Handled);
         }
 
-        if self.show_preview {
-            match input.key_code {
-                KeyCode::Char('j') | KeyCode::Down => {
-                    self.preview_scroll = self.preview_scroll.saturating_add(1);
-                    return Ok(HandleInputReturnType::Handled);
-                }
-                KeyCode::Char('k') | KeyCode::Up => {
-                    self.preview_scroll = self.preview_scroll.saturating_sub(1);
-                    return Ok(HandleInputReturnType::Handled);
-                }
-                KeyCode::Char('p') | KeyCode::Esc => {
-                    self.toggle_preview();
-                    return Ok(HandleInputReturnType::Handled);
-                }
-                _ => {
-                    self.show_preview = false;
-                    self.preview_scroll = 0;
-                }
-            }
-        }
         debug_assert!(!self.is_insert_mode());
 
         if app.get_current_entry().is_none() {
@@ -134,7 +114,8 @@ impl Editor<'_> {
         let sync_os_clipboard = app.settings.sync_os_clipboard;
 
         if is_default_navigation(input) {
-            if !self.try_snap_vertical_navigation(input) {
+            let visual_handled = self.show_preview && self.try_visual_navigation(input);
+            if !visual_handled && !self.try_snap_vertical_navigation(input) {
                 let key_event = KeyEvent::from(input);
                 self.text_area.input(key_event);
             }
@@ -594,6 +575,11 @@ impl Editor<'_> {
         if target_signed < 0 {
             self.text_area.move_cursor(CursorMove::Top);
             self.text_area.move_cursor(CursorMove::Head);
+            return true;
+        }
+        if target_signed >= rows.len() as i32 {
+            self.text_area.move_cursor(CursorMove::Bottom);
+            self.text_area.move_cursor(CursorMove::End);
             return true;
         }
         let (target_row, target_col) =
