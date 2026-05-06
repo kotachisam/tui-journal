@@ -101,3 +101,31 @@ pub fn exec_paste_os_clipboard(ui_components: &mut UIComponents) -> CmdResult {
         .editor
         .exec_os_clipboard(ClipboardOperation::Paste)
 }
+
+pub fn exec_editor_text_undo<D: DataProvider>(
+    ui_components: &mut UIComponents,
+    app: &App<D>,
+) -> CmdResult {
+    if ui_components.active_control != ControlType::EntryContentTxt
+        || matches!(ui_components.editor.get_editor_mode(), EditorMode::Insert)
+    {
+        return Ok(HandleInputReturnType::NotFound);
+    }
+    ui_components.editor.text_undo();
+    ui_components.editor.refresh_has_unsaved(app);
+    Ok(HandleInputReturnType::Handled)
+}
+
+pub fn exec_editor_text_redo<D: DataProvider>(
+    ui_components: &mut UIComponents,
+    app: &App<D>,
+) -> CmdResult {
+    if ui_components.active_control != ControlType::EntryContentTxt
+        || matches!(ui_components.editor.get_editor_mode(), EditorMode::Insert)
+    {
+        return Ok(HandleInputReturnType::NotFound);
+    }
+    ui_components.editor.text_redo();
+    ui_components.editor.refresh_has_unsaved(app);
+    Ok(HandleInputReturnType::Handled)
+}

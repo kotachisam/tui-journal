@@ -15,6 +15,7 @@ impl Editor<'_> {
     }
 
     pub fn set_editor_mode(&mut self, mode: EditorMode) {
+        self.pending_operator = None;
         let was_previewing = self.show_preview;
 
         match (self.mode, mode) {

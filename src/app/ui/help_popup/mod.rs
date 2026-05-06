@@ -37,6 +37,19 @@ const EDITOR_HINT_TEXT: &str = r"The editor has three modes:
  - Edit-Mode: In this mode Emacs keybindings are used to edit and navigate the text.
  - Visual-Mode: Like the visual mode in Vim to select, delete and yank text with extra vim keybindings (d, y, c).
 
+ Normal-Mode operators (delete with d, change with c — c-versions also enter Insert):
+ - dd / cc: Delete current line / clear current line content
+ - dw / cw / de / ce: Delete or change to next word
+ - db / cb: Delete or change to previous word
+ - dh / ch / dl / cl: Delete or change one char left / right
+ - dj / cj: Delete or change current line + line below
+ - dk / ck: Delete or change current line + line above
+ - d0 / d^ / c0 / c^: Delete or change to line head
+ - d$ / c$ (or D / C): Delete or change to line end
+ - u / Ctrl-r: Undo / redo text edits in the editor (Normal or Visual mode)
+ - Shift-U / Ctrl-Shift-Z: Undo / redo journal-level CRUD (creating or deleting entries) — fires anywhere
+ - Esc cancels a pending operator. Any unsupported second key cancels and is dropped.
+
  Basic Emacs Keybindings:
  - Ctrl-f / Ctrl-b: Move forward / backward one character
  - Alt-f / Alt-b: Move forward / backward one word

@@ -12,6 +12,12 @@ mod render;
 
 pub use mode::EditorMode;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Operator {
+    Delete,
+    Change,
+}
+
 #[derive(Clone, Debug)]
 pub struct MentionHitbox {
     pub row: u16,
@@ -35,6 +41,7 @@ pub struct Editor<'a> {
     pub mention_hitboxes: Vec<MentionHitbox>,
     pub pending_mention_follow: Option<MentionFollow>,
     pub pending_mention_peek: Option<u32>,
+    pub(super) pending_operator: Option<Operator>,
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +67,7 @@ impl<'a> Editor<'a> {
             mention_hitboxes: Vec::new(),
             pending_mention_follow: None,
             pending_mention_peek: None,
+            pending_operator: None,
         }
     }
 

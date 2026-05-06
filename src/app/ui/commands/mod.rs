@@ -91,6 +91,10 @@ pub enum UICommand {
     PopBackstack,
     /// Jumps to today's entry if one exists; opens the new-entry popup otherwise.
     JumpToToday,
+    /// Editor text-area undo (Normal/Visual mode only; no-op in Insert).
+    EditorTextUndo,
+    /// Editor text-area redo (Normal/Visual mode only; no-op in Insert).
+    EditorTextRedo,
 }
 
 #[derive(Debug, Clone)]
@@ -293,6 +297,14 @@ impl UICommand {
                 "Today",
                 "Jump to today's entry; open the new-entry popup if none exists",
             ),
+            UICommand::EditorTextUndo => CommandInfo::new(
+                "Undo (editor)",
+                "Undo the last text edit in the editor (Normal or Visual mode)",
+            ),
+            UICommand::EditorTextRedo => CommandInfo::new(
+                "Redo (editor)",
+                "Redo the last undone text edit in the editor (Normal or Visual mode)",
+            ),
         }
     }
 
@@ -376,6 +388,8 @@ impl UICommand {
                 Ok(HandleInputReturnType::Handled)
             }
             UICommand::JumpToToday => exec_jump_to_today(ui_components, app),
+            UICommand::EditorTextUndo => exec_editor_text_undo(ui_components, app),
+            UICommand::EditorTextRedo => exec_editor_text_redo(ui_components, app),
         }
     }
 
@@ -513,6 +527,12 @@ impl UICommand {
             }
             UICommand::JumpToToday => {
                 unreachable!("JumpToToday has no msgbox continuation")
+            }
+            UICommand::EditorTextUndo => {
+                unreachable!("EditorTextUndo has no msgbox continuation")
+            }
+            UICommand::EditorTextRedo => {
+                unreachable!("EditorTextRedo has no msgbox continuation")
             }
         }
     }

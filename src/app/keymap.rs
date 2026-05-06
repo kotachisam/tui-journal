@@ -156,11 +156,11 @@ pub(crate) fn get_global_keymaps() -> Vec<Keymap> {
             UICommand::PopBackstack,
         ),
         Keymap::new(
-            Input::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            Input::new(KeyCode::Char('U'), KeyModifiers::SHIFT),
             UICommand::Undo,
         ),
         Keymap::new(
-            Input::new(KeyCode::Char('U'), KeyModifiers::SHIFT),
+            Input::new(KeyCode::Char('Z'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
             UICommand::Redo,
         ),
     ]
@@ -325,6 +325,14 @@ pub(crate) fn get_editor_mode_keymaps() -> Vec<Keymap> {
             Input::new(KeyCode::Char('p'), KeyModifiers::CONTROL),
             UICommand::TogglePreviewMode,
         ),
+        Keymap::new(
+            Input::new(KeyCode::Char('u'), KeyModifiers::NONE),
+            UICommand::EditorTextUndo,
+        ),
+        Keymap::new(
+            Input::new(KeyCode::Char('r'), KeyModifiers::CONTROL),
+            UICommand::EditorTextRedo,
+        ),
     ]
 }
 
@@ -459,12 +467,30 @@ mod tests {
         let keymaps = get_global_keymaps();
 
         assert!(keymaps.iter().any(|keymap| {
-            keymap.key == Input::new(KeyCode::Char('u'), KeyModifiers::NONE)
+            keymap.key == Input::new(KeyCode::Char('U'), KeyModifiers::SHIFT)
                 && keymap.command == UICommand::Undo
         }));
         assert!(keymaps.iter().any(|keymap| {
-            keymap.key == Input::new(KeyCode::Char('U'), KeyModifiers::SHIFT)
+            keymap.key
+                == Input::new(
+                    KeyCode::Char('Z'),
+                    KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+                )
                 && keymap.command == UICommand::Redo
+        }));
+    }
+
+    #[test]
+    fn editor_bindings_include_text_undo_redo() {
+        let keymaps = get_editor_mode_keymaps();
+
+        assert!(keymaps.iter().any(|keymap| {
+            keymap.key == Input::new(KeyCode::Char('u'), KeyModifiers::NONE)
+                && keymap.command == UICommand::EditorTextUndo
+        }));
+        assert!(keymaps.iter().any(|keymap| {
+            keymap.key == Input::new(KeyCode::Char('r'), KeyModifiers::CONTROL)
+                && keymap.command == UICommand::EditorTextRedo
         }));
     }
 }

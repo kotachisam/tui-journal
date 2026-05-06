@@ -52,6 +52,22 @@ impl Editor<'_> {
         }
     }
 
+    pub fn text_undo(&mut self) -> bool {
+        let acted = self.text_area.undo();
+        if acted {
+            self.is_dirty = true;
+        }
+        acted
+    }
+
+    pub fn text_redo(&mut self) -> bool {
+        let acted = self.text_area.redo();
+        if acted {
+            self.is_dirty = true;
+        }
+        acted
+    }
+
     pub fn set_entry_content<D: DataProvider>(&mut self, entry_content: &str, app: &App<D>) {
         self.is_dirty = true;
         let lines = entry_content.lines().map(|line| line.to_owned()).collect();

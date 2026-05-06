@@ -7,7 +7,7 @@ use crate::app::{
     App, keymap::Input, runner::HandleInputReturnType, ui::commands::ClipboardOperation,
 };
 
-use super::{Editor, EditorMode};
+use super::{Editor, EditorMode, Operator};
 
 impl From<&Input> for KeyEvent {
     fn from(value: &Input) -> Self {
@@ -199,6 +199,24 @@ impl Editor<'_> {
     fn handle_vim_motions(&mut self, input: &Input, sync_os_clipboard: bool) -> anyhow::Result<()> {
         let has_control = input.modifiers.contains(KeyModifiers::CONTROL);
 
+        if self.pending_operator.is_some() {
+            return self.handle_pending_operator(input, sync_os_clipboard);
+        }
+
+        if input.modifiers.is_empty() && self.mode == EditorMode::Normal {
+            match input.key_code {
+                KeyCode::Char('d') => {
+                    self.pending_operator = Some(Operator::Delete);
+                    return Ok(());
+                }
+                KeyCode::Char('c') => {
+                    self.pending_operator = Some(Operator::Change);
+                    return Ok(());
+                }
+                _ => {}
+            }
+        }
+
         match (input.key_code, has_control) {
             (KeyCode::Char('h'), false) => {
                 self.text_area.move_cursor(CursorMove::Back);
@@ -239,12 +257,6 @@ impl Editor<'_> {
                 } else {
                     self.text_area.paste();
                 }
-            }
-            (KeyCode::Char('u'), false) => {
-                self.text_area.undo();
-            }
-            (KeyCode::Char('r'), true) => {
-                self.text_area.redo();
             }
             (KeyCode::Char('x'), false) => {
                 self.text_area.delete_next_char();
@@ -290,6 +302,85 @@ impl Editor<'_> {
         }
 
         Ok(())
+    }
+
+    fn handle_pending_operator(
+        &mut self,
+        input: &Input,
+        sync_os_clipboard: bool,
+    ) -> anyhow::Result<()> {
+        let Some(op) = self.pending_operator.take() else {
+            return Ok(());
+        };
+
+        if !input.modifiers.is_empty() {
+            return Ok(());
+        }
+
+        let acted = match (op, input.key_code) {
+            (Operator::Delete, KeyCode::Char('d')) => self.delete_current_line(),
+            (Operator::Change, KeyCode::Char('c')) => {
+                self.text_area.move_cursor(CursorMove::Head);
+                self.text_area.delete_line_by_end()
+            }
+            (_, KeyCode::Char('w')) | (_, KeyCode::Char('e')) => self.text_area.delete_next_word(),
+            (_, KeyCode::Char('b')) => self.text_area.delete_word(),
+            (_, KeyCode::Char('h')) => self.text_area.delete_char(),
+            (_, KeyCode::Char('l')) => self.text_area.delete_next_char(),
+            (_, KeyCode::Char('j')) => {
+                let first = self.delete_current_line();
+                let second = self.delete_current_line();
+                first || second
+            }
+            (_, KeyCode::Char('k')) => {
+                let (row, _) = self.text_area.cursor();
+                if row == 0 {
+                    self.delete_current_line()
+                } else {
+                    self.text_area.move_cursor(CursorMove::Up);
+                    let above = self.delete_current_line();
+                    let here = self.delete_current_line();
+                    above || here
+                }
+            }
+            (_, KeyCode::Char('0')) | (_, KeyCode::Char('^')) => {
+                self.text_area.delete_line_by_head()
+            }
+            (_, KeyCode::Char('$')) => self.text_area.delete_line_by_end(),
+            _ => return Ok(()),
+        };
+
+        if acted && sync_os_clipboard {
+            self.exec_os_clipboard(ClipboardOperation::Copy)?;
+        }
+
+        if matches!(op, Operator::Change) {
+            self.set_editor_mode(EditorMode::Insert);
+        }
+
+        Ok(())
+    }
+
+    fn delete_current_line(&mut self) -> bool {
+        let (row, _) = self.text_area.cursor();
+        let line_count = self.text_area.lines().len();
+
+        self.text_area.move_cursor(CursorMove::Head);
+
+        if row + 1 < line_count {
+            self.text_area.start_selection();
+            self.text_area.move_cursor(CursorMove::Down);
+            self.text_area.move_cursor(CursorMove::Head);
+            self.text_area.cut()
+        } else if row > 0 {
+            self.text_area.move_cursor(CursorMove::End);
+            self.text_area.start_selection();
+            self.text_area.move_cursor(CursorMove::Up);
+            self.text_area.move_cursor(CursorMove::End);
+            self.text_area.cut()
+        } else {
+            self.text_area.delete_line_by_end()
+        }
     }
 
     /// Up on first line / Down on last line snaps to line start/end instead of no-op.
@@ -559,5 +650,208 @@ fn is_default_navigation(input: &Input) -> bool {
         KeyCode::Char('a') if has_control || has_alt => true,
         KeyCode::Char('v') if has_control || has_alt => true,
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::ui::editor::Editor;
+    use tui_textarea::TextArea;
+
+    fn editor_with(lines: &[&str]) -> Editor<'static> {
+        let mut e = Editor::new();
+        e.text_area = TextArea::from(lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        e.set_editor_mode(EditorMode::Normal);
+        e
+    }
+
+    fn key(c: char) -> Input {
+        Input::new(KeyCode::Char(c), KeyModifiers::NONE)
+    }
+
+    fn esc() -> Input {
+        Input::new(KeyCode::Esc, KeyModifiers::NONE)
+    }
+
+    fn lines_of(e: &Editor<'_>) -> Vec<String> {
+        e.text_area.lines().to_vec()
+    }
+
+    #[test]
+    fn dd_deletes_middle_line() {
+        let mut e = editor_with(&["alpha", "beta", "gamma"]);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["alpha", "gamma"]);
+        assert!(e.pending_operator.is_none());
+    }
+
+    #[test]
+    fn dd_on_first_line() {
+        let mut e = editor_with(&["alpha", "beta"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["beta"]);
+    }
+
+    #[test]
+    fn dd_on_last_line() {
+        let mut e = editor_with(&["alpha", "beta"]);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["alpha"]);
+    }
+
+    #[test]
+    fn dd_on_only_line() {
+        let mut e = editor_with(&["solo"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert_eq!(lines_of(&e), vec![""]);
+    }
+
+    #[test]
+    fn dw_deletes_next_word() {
+        let mut e = editor_with(&["aaa bbb ccc"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('w'), false).unwrap();
+        assert_eq!(lines_of(&e), vec![" bbb ccc"]);
+    }
+
+    #[test]
+    fn db_deletes_previous_word() {
+        let mut e = editor_with(&["aaa bbb ccc"]);
+        e.text_area.move_cursor(CursorMove::End);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('b'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["aaa bbb "]);
+    }
+
+    #[test]
+    fn dj_deletes_two_lines() {
+        let mut e = editor_with(&["one", "two", "three", "four"]);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('j'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["one", "four"]);
+    }
+
+    #[test]
+    fn dk_deletes_current_and_above() {
+        let mut e = editor_with(&["one", "two", "three", "four"]);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('k'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["one", "four"]);
+    }
+
+    #[test]
+    fn dh_deletes_previous_char() {
+        let mut e = editor_with(&["abcd"]);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('h'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["acd"]);
+    }
+
+    #[test]
+    fn dl_deletes_next_char() {
+        let mut e = editor_with(&["abcd"]);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('l'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["acd"]);
+    }
+
+    #[test]
+    fn d_dollar_deletes_to_end() {
+        let mut e = editor_with(&["abcdef"]);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('$'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["ab"]);
+    }
+
+    #[test]
+    fn d_caret_deletes_to_head() {
+        let mut e = editor_with(&["abcdef"]);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.text_area.move_cursor(CursorMove::Forward);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('^'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["cdef"]);
+    }
+
+    #[test]
+    fn cw_deletes_word_and_enters_insert() {
+        let mut e = editor_with(&["aaa bbb"]);
+        e.handle_vim_motions(&key('c'), false).unwrap();
+        e.handle_vim_motions(&key('w'), false).unwrap();
+        assert_eq!(lines_of(&e), vec![" bbb"]);
+        assert_eq!(e.get_editor_mode(), EditorMode::Insert);
+    }
+
+    #[test]
+    fn cc_clears_line_and_enters_insert() {
+        let mut e = editor_with(&["alpha", "beta"]);
+        e.handle_vim_motions(&key('c'), false).unwrap();
+        e.handle_vim_motions(&key('c'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["", "beta"]);
+        assert_eq!(e.get_editor_mode(), EditorMode::Insert);
+    }
+
+    #[test]
+    fn esc_clears_pending_operator() {
+        let mut e = editor_with(&["alpha"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert!(e.pending_operator.is_some());
+        e.handle_vim_motions(&esc(), false).unwrap();
+        assert!(e.pending_operator.is_none());
+        assert_eq!(lines_of(&e), vec!["alpha"]);
+    }
+
+    #[test]
+    fn unsupported_motion_drops_strict() {
+        let mut e = editor_with(&["alpha"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('q'), false).unwrap();
+        assert!(e.pending_operator.is_none());
+        assert_eq!(lines_of(&e), vec!["alpha"]);
+        assert_eq!(e.text_area.cursor(), (0, 0));
+    }
+
+    #[test]
+    fn mode_change_clears_pending() {
+        let mut e = editor_with(&["alpha"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.set_editor_mode(EditorMode::Insert);
+        assert!(e.pending_operator.is_none());
+    }
+
+    #[test]
+    fn undo_after_dd_restores_line() {
+        let mut e = editor_with(&["alpha", "beta", "gamma"]);
+        e.text_area.move_cursor(CursorMove::Down);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        assert_eq!(lines_of(&e), vec!["alpha", "gamma"]);
+        e.text_area.undo();
+        assert_eq!(lines_of(&e), vec!["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn undo_after_dw_restores_word() {
+        let mut e = editor_with(&["aaa bbb ccc"]);
+        e.handle_vim_motions(&key('d'), false).unwrap();
+        e.handle_vim_motions(&key('w'), false).unwrap();
+        assert_eq!(lines_of(&e), vec![" bbb ccc"]);
+        e.text_area.undo();
+        assert_eq!(lines_of(&e), vec!["aaa bbb ccc"]);
     }
 }
