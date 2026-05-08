@@ -68,6 +68,10 @@ pub struct Settings {
     #[serde(default)]
     /// Sets the visibility options for the tags of journals when rendered in entries list.
     pub tag_visibility: TagVisibility,
+    #[serde(default)]
+    /// Sets the visibility of the writing-streak indicator in the Journals
+    /// panel title.
+    pub streak_visibility: StreakVisibility,
     /// Overwrite the path for the directory used to persist the app state.
     pub app_state_dir: Option<PathBuf>,
     #[serde(default)]
@@ -92,6 +96,7 @@ impl Default for Settings {
             datum_visibility: Default::default(),
             date_format: Default::default(),
             tag_visibility: Default::default(),
+            streak_visibility: Default::default(),
             app_state_dir: Default::default(),
             notion: Default::default(),
         }
@@ -121,6 +126,19 @@ pub enum TagVisibility {
     Show,
     /// Hide tags from the entries list. Tags remain editable via the entry
     /// details dialog.
+    Hide,
+}
+
+#[derive(Debug, Deserialize, Serialize, PartialEq, Eq, ValueEnum, Clone, Copy, Default)]
+#[serde(rename_all = "snake_case")]
+/// Represents the visibility of the writing-streak indicator rendered in the
+/// Journals panel title.
+pub enum StreakVisibility {
+    #[default]
+    /// Show the streak indicator (`🔥 N` / `🟡 N`) when an active or jeopardy
+    /// streak exists.
+    Show,
+    /// Suppress the streak indicator entirely.
     Hide,
 }
 
@@ -199,6 +217,7 @@ impl Settings {
             datum_visibility: _,
             date_format: _,
             tag_visibility: _,
+            streak_visibility: _,
             app_state_dir: _,
             notion: _,
         } = self;
@@ -323,6 +342,14 @@ mod tests {
         assert_eq!(settings.scroll_per_page, None);
         assert_eq!(settings.history_limit, 10);
         assert!(settings.colored_tags);
+        assert_eq!(settings.streak_visibility, StreakVisibility::Show);
+    }
+
+    #[tokio::test]
+    async fn streak_visibility_can_be_hidden_via_config() {
+        let dir = config_dir_with(r#"streak_visibility = "hide""#);
+        let settings = Settings::new(Some(dir.path().to_path_buf())).await.unwrap();
+        assert_eq!(settings.streak_visibility, StreakVisibility::Hide);
     }
 
     #[tokio::test]

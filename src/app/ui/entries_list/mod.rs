@@ -1,8 +1,9 @@
+use chrono::Local;
 use ratatui::{
     Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     prelude::Margin,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     symbols,
     text::{Line, Span},
     widgets::{
@@ -15,9 +16,10 @@ use backend::DataProvider;
 
 use crate::app::App;
 use crate::app::categories;
+use crate::app::streak::{StreakStatus, compute_streak};
 use crate::{
     app::keymap::Keymap,
-    settings::{DatumVisibility, TagVisibility},
+    settings::{DatumVisibility, StreakVisibility, TagVisibility},
 };
 
 use super::{Styles, UICommand};
@@ -52,6 +54,7 @@ impl EntriesList {
         app: &App<D>,
         area: Rect,
         styles: &Styles,
+        streak: Option<StreakStatus>,
     ) {
         let jstyles = &styles.journals_list;
         let content_width = (area.width as usize).saturating_sub(LIST_INNER_MARGIN);
@@ -112,7 +115,7 @@ impl EntriesList {
         };
 
         let list = List::new(items)
-            .block(self.get_list_block(app.filter.is_some(), Some(items_count), styles))
+            .block(self.get_list_block(app.filter.is_some(), Some(items_count), styles, streak))
             .highlight_style(highlight_style)
             .highlight_symbol("> ");
 
@@ -167,6 +170,7 @@ impl EntriesList {
         list_keymaps: &[Keymap],
         has_filter: bool,
         styles: &Styles,
+        streak: Option<StreakStatus>,
     ) {
         let keys_text: Vec<String> = list_keymaps
             .iter()
@@ -183,7 +187,7 @@ impl EntriesList {
         let place_holder = Paragraph::new(place_holder_text)
             .wrap(Wrap { trim: false })
             .alignment(Alignment::Center)
-            .block(self.get_list_block(has_filter, None, styles));
+            .block(self.get_list_block(has_filter, None, styles, streak));
 
         frame.render_widget(place_holder, area);
     }
@@ -193,12 +197,35 @@ impl EntriesList {
         has_filter: bool,
         entries_len: Option<usize>,
         styles: &Styles,
+        streak: Option<StreakStatus>,
     ) -> Block<'a> {
-        let title = match (self.multi_select_mode, has_filter) {
+        let base_title = match (self.multi_select_mode, has_filter) {
             (true, true) => "Journals - Multi-Select - Filtered",
             (true, false) => "Journals - Multi-Select",
             (false, true) => "Journals - Filtered",
             (false, false) => "Journals",
+        };
+
+        let title_line = match streak {
+            Some(StreakStatus::Active(n)) => Line::from(vec![
+                Span::raw(format!("{base_title} ")),
+                Span::styled(
+                    format!("🔥 {n}"),
+                    Style::default()
+                        .fg(Color::Rgb(255, 140, 0))
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Some(StreakStatus::Jeopardy(n)) => Line::from(vec![
+                Span::raw(format!("{base_title} ")),
+                Span::styled(
+                    format!("🟡 {n}"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            None => Line::from(base_title),
         };
 
         let border_style = match (self.is_active, self.multi_select_mode) {
@@ -209,7 +236,7 @@ impl EntriesList {
 
         let block = Block::default()
             .borders(Borders::ALL)
-            .title(title)
+            .title(title_line)
             .border_style(border_style);
 
         match (entries_len, self.state.selected().map(|v| v + 1)) {
@@ -235,11 +262,32 @@ impl EntriesList {
 
         self.render_category_tabs(frame, chunks[0], app);
 
+        let streak = match app.settings.streak_visibility {
+            StreakVisibility::Hide => None,
+            StreakVisibility::Show => {
+                let mut days: Vec<_> = app
+                    .entries
+                    .iter()
+                    .map(|e| e.date.with_timezone(&Local).date_naive())
+                    .collect();
+                days.sort();
+                days.dedup();
+                compute_streak(&days, Local::now().date_naive())
+            }
+        };
+
         let list_area = chunks[1];
         if app.get_active_entries().next().is_none() {
-            self.render_place_holder(frame, list_area, list_keymaps, app.filter.is_some(), styles);
+            self.render_place_holder(
+                frame,
+                list_area,
+                list_keymaps,
+                app.filter.is_some(),
+                styles,
+                streak,
+            );
         } else {
-            self.render_list(frame, app, list_area, styles);
+            self.render_list(frame, app, list_area, styles, streak);
         }
     }
 

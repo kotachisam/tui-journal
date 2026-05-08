@@ -17,6 +17,7 @@ mod persistence;
 mod runner;
 mod sorter;
 pub mod state;
+pub mod streak;
 mod tags;
 pub mod templates;
 #[cfg(test)]
