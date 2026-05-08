@@ -164,7 +164,9 @@ impl Editor<'_> {
             &app.settings.date_format,
         );
         frame.render_widget(
-            MarkdownWidget::new(&rendered_content).scroll(self.preview_scroll),
+            MarkdownWidget::new(&rendered_content)
+                .styles((&styles.markdown).into())
+                .scroll(self.preview_scroll),
             inner,
         );
 

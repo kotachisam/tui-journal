@@ -1,6 +1,7 @@
 mod editor_styles;
 mod general_styles;
 mod journals_list_styles;
+mod markdown_styles;
 mod msgbox;
 mod style;
 
@@ -13,6 +14,7 @@ use serde::{Deserialize, Serialize};
 pub use editor_styles::EditorStyles;
 pub use general_styles::GeneralStyles;
 pub use journals_list_styles::JournalsListStyles;
+pub use markdown_styles::MarkdownStyles;
 pub use msgbox::MsgBoxColors;
 pub use style::Style;
 
@@ -34,6 +36,8 @@ pub struct Styles {
     pub journals_list: JournalsListStyles,
     #[serde(default)]
     pub editor: EditorStyles,
+    #[serde(default)]
+    pub markdown: MarkdownStyles,
     #[serde(default)]
     pub msgbox: MsgBoxColors,
 }
