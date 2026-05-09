@@ -27,6 +27,7 @@ mod undo_redo;
 
 pub use runner::HandleInputReturnType;
 pub use runner::run;
+pub use runner::run_headless;
 pub use ui::UIComponents;
 
 pub struct App<D>

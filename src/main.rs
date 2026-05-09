@@ -67,6 +67,11 @@ async fn main() -> Result<()> {
         cli::CliResult::PendingCommand(cmd) => pending_cmd = Some(cmd),
     }
 
+    if pending_cmd.as_ref().is_some_and(|c| c.is_headless()) {
+        let cmd = pending_cmd.take().expect("checked just above");
+        return app::run_headless(settings, cmd).await;
+    }
+
     let styles =
         Styles::load(custom_config.as_ref()).context("Error while retrieving app styles")?;
     enable_raw_mode()?;

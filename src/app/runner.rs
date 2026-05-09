@@ -77,6 +77,80 @@ impl TerminationSignals {
     }
 }
 
+/// One-shot CLI entry point that skips terminal init. Used for headless
+/// commands (export, log) so their stdout/stderr output is visible instead
+/// of being swallowed by the alternate screen.
+pub async fn run_headless(settings: Settings, cmd: PendingCliCommand) -> Result<()> {
+    debug_assert!(
+        cmd.is_headless(),
+        "run_headless invoked with non-headless command"
+    );
+    match settings.backend_type.unwrap_or_default() {
+        #[cfg(feature = "json")]
+        BackendType::Json => {
+            let path = if let Some(path) = &settings.json_backend.file_path {
+                path.clone()
+            } else {
+                crate::settings::json_backend::get_default_json_path()?
+            };
+            let data_provider = JsonDataProvide::new(path);
+            let app = App::new(data_provider, settings);
+            exec_headless_cmd(&app, cmd).await
+        }
+        #[cfg(not(feature = "json"))]
+        BackendType::Json => {
+            anyhow::bail!(
+                "Feature 'json' is not installed. Please check your configs and set your backend to an installed feature, or reinstall the program with 'json' feature"
+            )
+        }
+        #[cfg(feature = "sqlite")]
+        BackendType::Sqlite => {
+            let path = if let Some(path) = &settings.sqlite_backend.file_path {
+                path.clone()
+            } else {
+                crate::settings::sqlite_backend::get_default_sqlite_path()?
+            };
+            let data_provider = SqliteDataProvide::from_file(path).await?;
+            let app = App::new(data_provider, settings);
+            exec_headless_cmd(&app, cmd).await
+        }
+        #[cfg(not(feature = "sqlite"))]
+        BackendType::Sqlite => {
+            anyhow::bail!(
+                "Feature 'sqlite' is not installed. Please check your configs and set your backend to an installed feature, or reinstall the program with 'sqlite' feature"
+            )
+        }
+    }
+}
+
+async fn exec_headless_cmd<D: DataProvider>(
+    app: &App<D>,
+    cmd: PendingCliCommand,
+) -> Result<()> {
+    match cmd {
+        PendingCliCommand::ExportActivityLog => {
+            let entries = app.get_activity_log().await?;
+            let json = serde_json::to_string_pretty(&entries)
+                .context("Serializing activity log to JSON")?;
+            println!("{json}");
+        }
+        PendingCliCommand::ExportToDirectory {
+            dir,
+            tag,
+            filename_format,
+        } => {
+            println!("Exporting entries to {} ...", dir.display());
+            let written = app
+                .export_to_directory(dir.clone(), tag, filename_format)
+                .await?;
+            log::info!("Exported {written} entries to {}", dir.display());
+            println!("Exported {written} entries to {}", dir.display());
+        }
+        _ => unreachable!("exec_headless_cmd called with non-headless command"),
+    }
+    Ok(())
+}
+
 pub async fn run<B: Backend>(
     terminal: &mut Terminal<B>,
     settings: Settings,
@@ -292,8 +366,14 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 .context("Serializing activity log to JSON")?;
             println!("{json}");
         }
-        PendingCliCommand::ExportToDirectory { dir, tag } => {
-            let written = app.export_to_directory(dir.clone(), tag).await?;
+        PendingCliCommand::ExportToDirectory {
+            dir,
+            tag,
+            filename_format,
+        } => {
+            let written = app
+                .export_to_directory(dir.clone(), tag, filename_format)
+                .await?;
             log::info!("Exported {written} entries to {}", dir.display());
             println!("Exported {written} entries to {}", dir.display());
         }

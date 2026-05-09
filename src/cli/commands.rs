@@ -37,9 +37,9 @@ pub enum CliCommand {
     /// jq for filtering.
     Log,
     /// Export entries as individual markdown files with YAML frontmatter,
-    /// one file per entry, filenames `{id}-{slug}.md`. Optionally filter
-    /// by a tag. Overwrites existing files with the same id — safe to
-    /// re-run.
+    /// one file per entry. Default filename pattern is `{id}-{slug}.md`;
+    /// override with --filename-format. Optionally filter by a tag.
+    /// Overwrites existing files with the same name — safe to re-run.
     #[clap(visible_alias = "ex")]
     Export {
         /// Directory to write files into. Created if missing.
@@ -48,6 +48,12 @@ pub enum CliCommand {
         /// Only export entries that carry this tag.
         #[arg(short = 't', long = "tag", value_name = "TAG")]
         tag: Option<String>,
+        /// Filename pattern. Tokens: `{id}`, `{slug}`, `{title}` (slug-safe),
+        /// `{date:%FMT}` (chrono strftime). `.md` extension is appended if
+        /// not present. Default: `{id}-{slug}`. Errors on collisions —
+        /// add `{id}` to disambiguate.
+        #[arg(short = 'f', long = "filename-format", value_name = "FORMAT")]
+        filename_format: Option<String>,
     },
 }
 
@@ -116,7 +122,20 @@ pub enum PendingCliCommand {
     ExportToDirectory {
         dir: PathBuf,
         tag: Option<String>,
+        filename_format: Option<String>,
     },
+}
+
+impl PendingCliCommand {
+    /// True when the command is a one-shot CLI operation that prints to
+    /// stdout/stderr and should not enter the TUI's alternate screen
+    /// (which would swallow the output on exit).
+    pub fn is_headless(&self) -> bool {
+        matches!(
+            self,
+            PendingCliCommand::ExportToDirectory { .. } | PendingCliCommand::ExportActivityLog
+        )
+    }
 }
 
 impl CliCommand {
@@ -156,8 +175,16 @@ impl CliCommand {
             CliCommand::Log => Ok(CliResult::PendingCommand(
                 PendingCliCommand::ExportActivityLog,
             )),
-            CliCommand::Export { dir, tag } => Ok(CliResult::PendingCommand(
-                PendingCliCommand::ExportToDirectory { dir, tag },
+            CliCommand::Export {
+                dir,
+                tag,
+                filename_format,
+            } => Ok(CliResult::PendingCommand(
+                PendingCliCommand::ExportToDirectory {
+                    dir,
+                    tag,
+                    filename_format,
+                },
             )),
         }
     }
