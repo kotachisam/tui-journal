@@ -18,8 +18,8 @@ use backend::DataProvider;
 use crate::app::App;
 use crate::app::ui::Styles;
 
-use super::{Editor, EditorMode, MentionHitbox, highlight::patch_preview_highlights};
 use super::mention::RenderedMention;
+use super::{Editor, EditorMode, MentionHitbox, highlight::patch_preview_highlights};
 
 impl Editor<'_> {
     pub fn render_widget<D: DataProvider>(
@@ -549,7 +549,11 @@ fn find_label_after(
     }
     for dy in start_row..area.height {
         let row_chars = read_row_chars(buf, area, dy);
-        let scan_start = if dy == start_row { start_col as usize } else { 0 };
+        let scan_start = if dy == start_row {
+            start_col as usize
+        } else {
+            0
+        };
         if scan_start + label.len() > row_chars.len() {
             continue;
         }
@@ -587,7 +591,11 @@ pub(super) fn patch_mention_styles(
         else {
             continue;
         };
-        let style = if mention.missing { missing_style } else { link_style };
+        let style = if mention.missing {
+            missing_style
+        } else {
+            link_style
+        };
         let label_len = label_chars.len() as u16;
         let col_end = (col_start + label_len).min(area.width);
         for dx in col_start..col_end {
@@ -678,9 +686,7 @@ fn patch_raw_editor_mentions(
                     if let Ok(id) = id_str.parse::<u32>() {
                         let (token_end, anchor) =
                             super::mention::parse_anchor_suffix_buffer(&row_chars, j);
-                        let missing = !entries
-                            .iter()
-                            .any(|e| e.id == id && e.deleted_at.is_none());
+                        let missing = !entries.iter().any(|e| e.id == id && e.deleted_at.is_none());
                         let style = if missing { missing_style } else { link_style };
                         for dx in i..token_end {
                             let cell_x = inner.x + dx as u16;

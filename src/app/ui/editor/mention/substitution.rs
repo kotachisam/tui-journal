@@ -119,7 +119,10 @@ mod tests {
     #[test]
     fn render_label_with_title() {
         let e = entry(1, "My Title", "body", &[]);
-        assert_eq!(render_mention_label(&e, &dd_mm_yyyy()), "My Title (15-05-2026)");
+        assert_eq!(
+            render_mention_label(&e, &dd_mm_yyyy()),
+            "My Title (15-05-2026)"
+        );
     }
 
     #[test]

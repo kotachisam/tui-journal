@@ -80,10 +80,7 @@ pub enum ScrollDirection {
 }
 
 fn rect_contains(rect: Rect, column: u16, row: u16) -> bool {
-    column >= rect.x
-        && column < rect.x + rect.width
-        && row >= rect.y
-        && row < rect.y + rect.height
+    column >= rect.x && column < rect.x + rect.width && row >= rect.y && row < rect.y + rect.height
 }
 
 pub enum Popup<'a> {
@@ -232,8 +229,7 @@ impl UIComponents<'_> {
             .current_entry_id
             .and_then(|id| active_ids.iter().position(|&x| x == id))
             .unwrap_or(0) as i32;
-        let next_idx = (current_idx + delta)
-            .clamp(0, (active_ids.len() as i32) - 1) as usize;
+        let next_idx = (current_idx + delta).clamp(0, (active_ids.len() as i32) - 1) as usize;
         let next_id = active_ids[next_idx];
         if Some(next_id) != app.current_entry_id {
             self.set_current_entry(Some(next_id), app);
@@ -583,4 +579,3 @@ impl UIComponents<'_> {
         }
     }
 }
-

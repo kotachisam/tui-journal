@@ -137,11 +137,23 @@ async fn undo_redo_after_restoring_deleted_entry_keeps_history_id() {
     app.load_entries().await.unwrap();
 
     let a_id = app
-        .add_entry("A".into(), DateTime::default(), vec![], None, "journal".into())
+        .add_entry(
+            "A".into(),
+            DateTime::default(),
+            vec![],
+            None,
+            "journal".into(),
+        )
         .await
         .unwrap();
     let _b_id = app
-        .add_entry("B".into(), DateTime::default(), vec![], None, "journal".into())
+        .add_entry(
+            "B".into(),
+            DateTime::default(),
+            vec![],
+            None,
+            "journal".into(),
+        )
         .await
         .unwrap();
 

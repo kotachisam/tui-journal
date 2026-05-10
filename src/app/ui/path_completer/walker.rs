@@ -126,7 +126,11 @@ mod tests {
 
     #[test]
     fn alphabetical_within_groups() {
-        let dir = make_dir_with(&[("zebra.txt", false), ("apple.txt", false), ("mango.txt", false)]);
+        let dir = make_dir_with(&[
+            ("zebra.txt", false),
+            ("apple.txt", false),
+            ("mango.txt", false),
+        ]);
         let result = list_directory(dir.path(), "", 50);
         assert_eq!(result[0].name, "apple.txt");
         assert_eq!(result[1].name, "mango.txt");
@@ -159,8 +163,11 @@ mod tests {
 
     #[test]
     fn caps_at_max_candidates() {
-        let entries: Vec<(String, bool)> = (0..100).map(|i| (format!("file_{i:03}.md"), false)).collect();
-        let entries_ref: Vec<(&str, bool)> = entries.iter().map(|(n, d)| (n.as_str(), *d)).collect();
+        let entries: Vec<(String, bool)> = (0..100)
+            .map(|i| (format!("file_{i:03}.md"), false))
+            .collect();
+        let entries_ref: Vec<(&str, bool)> =
+            entries.iter().map(|(n, d)| (n.as_str(), *d)).collect();
         let dir = make_dir_with(&entries_ref);
         let result = list_directory(dir.path(), "", 10);
         assert_eq!(result.len(), 10);

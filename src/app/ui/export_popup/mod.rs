@@ -28,12 +28,10 @@ use super::{PopupReturn, Styles, ui_functions::centered_rect_exact_height};
 type ExportPopupInputReturn = PopupReturn<(PathBuf, Option<u32>)>;
 
 const FOOTER_MULTI: &str = "Enter: confirm | Esc or <Ctrl-c>: Cancel";
-const FOOTER_MULTI_COMPLETING: &str =
-    "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
+const FOOTER_MULTI_COMPLETING: &str = "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
 const FOOTER_SINGLE: &str =
     "↑/↓/Tab: cycle ext | Ctrl-O: file picker | Enter: confirm | Esc: Cancel";
-const FOOTER_SINGLE_COMPLETING: &str =
-    "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
+const FOOTER_SINGLE_COMPLETING: &str = "↑/↓: navigate | Tab/Enter: complete | Esc: dismiss overlay";
 const FOOTER_MARGINE: u16 = 8;
 const DEFAULT_FILE_NAME: &str = "tjournal_export.json";
 const CYCLE_EXTENSIONS: &[&str] = &["md", "txt"];
@@ -126,11 +124,7 @@ impl ExportPopup<'_> {
     }
 
     fn current_path_string(&self) -> String {
-        self.path_txt
-            .lines()
-            .first()
-            .cloned()
-            .unwrap_or_default()
+        self.path_txt.lines().first().cloned().unwrap_or_default()
     }
 
     fn cursor_col(&self) -> usize {
@@ -189,7 +183,11 @@ impl ExportPopup<'_> {
             return;
         }
 
-        let preserved_idx = self.completion.as_ref().map(|c| c.selected_idx).unwrap_or(0);
+        let preserved_idx = self
+            .completion
+            .as_ref()
+            .map(|c| c.selected_idx)
+            .unwrap_or(0);
         let mut state = InlineCompleterState::new(0, 0);
         state.candidates = candidates;
         state.selected_idx = preserved_idx.min(state.candidates.len().saturating_sub(1));
@@ -636,10 +634,7 @@ mod tests {
     #[test]
     fn cycle_keeps_legitimate_dotted_filenames() {
         // "v1.0.md" stem is "v1.0", which doesn't end in a cycle ext — leave alone
-        assert_eq!(
-            cycle_path_extension("v1.0.md").as_deref(),
-            Some("v1.0.txt")
-        );
+        assert_eq!(cycle_path_extension("v1.0.md").as_deref(), Some("v1.0.txt"));
     }
 
     #[test]

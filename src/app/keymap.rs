@@ -160,7 +160,10 @@ pub(crate) fn get_global_keymaps() -> Vec<Keymap> {
             UICommand::Undo,
         ),
         Keymap::new(
-            Input::new(KeyCode::Char('Z'), KeyModifiers::CONTROL | KeyModifiers::SHIFT),
+            Input::new(
+                KeyCode::Char('Z'),
+                KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+            ),
             UICommand::Redo,
         ),
     ]

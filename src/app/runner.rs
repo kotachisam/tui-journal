@@ -123,10 +123,7 @@ pub async fn run_headless(settings: Settings, cmd: PendingCliCommand) -> Result<
     }
 }
 
-async fn exec_headless_cmd<D: DataProvider>(
-    app: &App<D>,
-    cmd: PendingCliCommand,
-) -> Result<()> {
+async fn exec_headless_cmd<D: DataProvider>(app: &App<D>, cmd: PendingCliCommand) -> Result<()> {
     match cmd {
         PendingCliCommand::ExportActivityLog => {
             let entries = app.get_activity_log().await?;
@@ -213,8 +210,14 @@ async fn print_obsidian_status<D: DataProvider>(
         .unwrap_or_else(|| "never".to_string());
     let vault = settings.vault_dir.as_ref().unwrap().display();
     println!("obsidian.vault_dir = {vault}");
-    println!("filename_format    = {}", settings.filename_format_or_default());
-    println!("category_dirs      = {} mapped", settings.category_dirs.len());
+    println!(
+        "filename_format    = {}",
+        settings.filename_format_or_default()
+    );
+    println!(
+        "category_dirs      = {} mapped",
+        settings.category_dirs.len()
+    );
     println!("synced entries     = {synced} / {}", live.len());
     println!("unsynced           = {unsynced}");
     println!("pending deletes    = {pending_deletes}");
@@ -222,10 +225,7 @@ async fn print_obsidian_status<D: DataProvider>(
     Ok(())
 }
 
-async fn run_sync_all_headless<D: DataProvider>(
-    app: &App<D>,
-    force_obsidian: bool,
-) -> Result<()> {
+async fn run_sync_all_headless<D: DataProvider>(app: &App<D>, force_obsidian: bool) -> Result<()> {
     println!("Running notion sync ...");
     let notion_settings = app.settings.notion.clone();
     use crate::settings::notion::SyncMode;

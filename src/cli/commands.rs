@@ -223,15 +223,19 @@ impl CliCommand {
                     filename_format,
                 },
             )),
-            CliCommand::Obsidian(ObsidianCommand::Sync { force }) => Ok(
-                CliResult::PendingCommand(PendingCliCommand::ObsidianSync { force }),
-            ),
-            CliCommand::Obsidian(ObsidianCommand::Status) => Ok(CliResult::PendingCommand(
-                PendingCliCommand::ObsidianStatus,
-            )),
-            CliCommand::SyncAll { force_obsidian } => Ok(CliResult::PendingCommand(
-                PendingCliCommand::SyncAll { force_obsidian },
-            )),
+            CliCommand::Obsidian(ObsidianCommand::Sync { force }) => {
+                Ok(CliResult::PendingCommand(PendingCliCommand::ObsidianSync {
+                    force,
+                }))
+            }
+            CliCommand::Obsidian(ObsidianCommand::Status) => {
+                Ok(CliResult::PendingCommand(PendingCliCommand::ObsidianStatus))
+            }
+            CliCommand::SyncAll { force_obsidian } => {
+                Ok(CliResult::PendingCommand(PendingCliCommand::SyncAll {
+                    force_obsidian,
+                }))
+            }
         }
     }
 }

@@ -20,11 +20,10 @@ pub fn find_anchor_line(content: &str, anchor: &str) -> Option<u16> {
         return None;
     }
     let needle = anchor.to_lowercase();
-    content.lines().enumerate().find_map(|(idx, line)| {
-        line.to_lowercase()
-            .contains(&needle)
-            .then_some(idx as u16)
-    })
+    content
+        .lines()
+        .enumerate()
+        .find_map(|(idx, line)| line.to_lowercase().contains(&needle).then_some(idx as u16))
 }
 
 #[cfg(test)]
@@ -59,7 +58,10 @@ mod tests {
 
     #[test]
     fn find_anchor_line_basic_hit() {
-        assert_eq!(find_anchor_line("foo\nbar naval baz\nqux", "naval"), Some(1));
+        assert_eq!(
+            find_anchor_line("foo\nbar naval baz\nqux", "naval"),
+            Some(1)
+        );
     }
 
     #[test]

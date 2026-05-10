@@ -146,7 +146,10 @@ mod tests {
         let s = settings_with_dirs(&[("journal", "DAILY Journal")]);
         let cfg = s.to_publisher_config().unwrap();
         assert_eq!(cfg.vault_dir, std::path::PathBuf::from("/tmp/vault"));
-        assert_eq!(cfg.category_dirs.get("journal"), Some(&"DAILY Journal".to_string()));
+        assert_eq!(
+            cfg.category_dirs.get("journal"),
+            Some(&"DAILY Journal".to_string())
+        );
         assert!(cfg.filename_format.contains("{date"));
     }
 

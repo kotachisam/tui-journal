@@ -64,7 +64,9 @@ fn is_attribute_block(s: &str) -> bool {
         let key = &chunk[..eq_idx];
         let value = &chunk[eq_idx + 1..];
         !key.is_empty()
-            && key.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-')
+            && key
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-')
             && value.len() >= 2
             && value.starts_with('"')
             && value.ends_with('"')
@@ -116,19 +118,14 @@ mod tests {
     #[test]
     fn multiple_spans_on_same_line() {
         assert_eq!(
-            strip_notion_noise(
-                "<span a=\"1\">one</span> and <span b=\"2\">two</span>"
-            ),
+            strip_notion_noise("<span a=\"1\">one</span> and <span b=\"2\">two</span>"),
             "one and two"
         );
     }
 
     #[test]
     fn multiple_attrs_in_one_block_stripped() {
-        assert_eq!(
-            strip_notion_noise("Heading {a=\"1\" b=\"2\"}"),
-            "Heading"
-        );
+        assert_eq!(strip_notion_noise("Heading {a=\"1\" b=\"2\"}"), "Heading");
     }
 
     #[test]

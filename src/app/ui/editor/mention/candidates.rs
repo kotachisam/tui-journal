@@ -58,7 +58,8 @@ pub fn filter_candidates(sources: &[CandidateSource], query: &str) -> Vec<Mentio
             .into_iter()
             .take(MAX_MENTION_SUGGESTIONS)
             .map(|s| {
-                let (snippet, match_indices) = extract_snippet(&s.body_flat, &s.body_first_line, "");
+                let (snippet, match_indices) =
+                    extract_snippet(&s.body_flat, &s.body_first_line, "");
                 MentionCandidate {
                     id: s.id,
                     snippet,
@@ -79,7 +80,8 @@ pub fn filter_candidates(sources: &[CandidateSource], query: &str) -> Vec<Mentio
     scored
         .into_iter()
         .map(|(_, s)| {
-            let (snippet, match_indices) = extract_snippet(&s.body_flat, &s.body_first_line, trimmed);
+            let (snippet, match_indices) =
+                extract_snippet(&s.body_flat, &s.body_first_line, trimmed);
             MentionCandidate {
                 id: s.id,
                 snippet,
@@ -117,15 +119,24 @@ fn score_candidate(matcher: &SkimMatcherV2, src: &CandidateSource, query: &str) 
 fn extract_snippet(body_flat: &str, body_first_line: &str, query: &str) -> (String, Vec<usize>) {
     let chars: Vec<char> = body_flat.chars().collect();
     if chars.is_empty() || query.trim().is_empty() {
-        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
+        return (
+            truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS),
+            Vec::new(),
+        );
     }
 
     let matcher = SkimMatcherV2::default().smart_case();
     let Some((_, indices)) = matcher.fuzzy_indices(body_flat, query.trim()) else {
-        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
+        return (
+            truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS),
+            Vec::new(),
+        );
     };
     let Some(&first_match) = indices.first() else {
-        return (truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS), Vec::new());
+        return (
+            truncate_chars(body_first_line, SNIPPET_WINDOW_CHARS),
+            Vec::new(),
+        );
     };
 
     let total = chars.len();
@@ -237,13 +248,21 @@ mod tests {
 
     #[test]
     fn snippet_with_match_extracts_window_around_match() {
-        let body: String =
-            "lorem ipsum ".repeat(20) + "naval ravikant " + &"more text ".repeat(20);
+        let body: String = "lorem ipsum ".repeat(20) + "naval ravikant " + &"more text ".repeat(20);
         let (snippet, indices) = extract_snippet(&body, "lorem ipsum", "naval");
-        assert!(snippet.contains("naval"), "snippet missing match: {snippet}");
-        assert!(snippet.starts_with('…'), "expected leading ellipsis: {snippet}");
+        assert!(
+            snippet.contains("naval"),
+            "snippet missing match: {snippet}"
+        );
+        assert!(
+            snippet.starts_with('…'),
+            "expected leading ellipsis: {snippet}"
+        );
         let char_count = snippet.chars().count();
-        assert!(char_count <= SNIPPET_WINDOW_CHARS + 2, "too long: {char_count}");
+        assert!(
+            char_count <= SNIPPET_WINDOW_CHARS + 2,
+            "too long: {char_count}"
+        );
         assert!(!indices.is_empty(), "expected highlight indices");
     }
 
@@ -283,7 +302,10 @@ mod tests {
         let chars: Vec<char> = snippet.chars().collect();
         assert_eq!(chars[0], '…');
         for &i in &indices {
-            assert!(i > 0, "matched char index {i} should not include the ellipsis");
+            assert!(
+                i > 0,
+                "matched char index {i} should not include the ellipsis"
+            );
         }
     }
 

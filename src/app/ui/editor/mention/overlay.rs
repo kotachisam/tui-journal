@@ -154,7 +154,12 @@ mod tests {
     #[test]
     fn does_not_render_when_no_candidates() {
         let state = MentionState::new(0, 0);
-        let anchor = Rect { x: 5, y: 5, width: 10, height: 1 };
+        let anchor = Rect {
+            x: 5,
+            y: 5,
+            width: 10,
+            height: 1,
+        };
         let buffer = render_to_buffer(80, 24, anchor, &state);
         assert!(
             find_top_left_corner(&buffer).is_none(),
@@ -165,10 +170,19 @@ mod tests {
     #[test]
     fn renders_below_anchor_when_space_available() {
         let state = state_with(3, 0);
-        let anchor = Rect { x: 4, y: 2, width: 20, height: 1 };
+        let anchor = Rect {
+            x: 4,
+            y: 2,
+            width: 20,
+            height: 1,
+        };
         let buffer = render_to_buffer(120, 24, anchor, &state);
         let (x, y) = find_top_left_corner(&buffer).expect("expected overlay border");
-        assert_eq!(y, anchor.y + anchor.height, "overlay should sit one row below anchor");
+        assert_eq!(
+            y,
+            anchor.y + anchor.height,
+            "overlay should sit one row below anchor"
+        );
         assert_eq!(x, anchor.x, "overlay should align to anchor x when it fits");
     }
 
@@ -176,7 +190,12 @@ mod tests {
     fn flips_above_anchor_when_no_space_below() {
         let state = state_with(4, 0);
         let frame_h = 10u16;
-        let anchor = Rect { x: 0, y: frame_h - 1, width: 10, height: 1 };
+        let anchor = Rect {
+            x: 0,
+            y: frame_h - 1,
+            width: 10,
+            height: 1,
+        };
         let buffer = render_to_buffer(80, frame_h, anchor, &state);
         let (_, y) = find_top_left_corner(&buffer).expect("expected overlay border");
         let desired_height = state.candidates.len() as u16 + 2;
@@ -191,7 +210,12 @@ mod tests {
     fn clamps_overlay_into_visible_frame_when_neither_fits_fully() {
         let state = state_with(20, 0);
         let frame_h = 8u16;
-        let anchor = Rect { x: 0, y: 4, width: 10, height: 1 };
+        let anchor = Rect {
+            x: 0,
+            y: 4,
+            width: 10,
+            height: 1,
+        };
         let buffer = render_to_buffer(80, frame_h, anchor, &state);
         let (_, y) = find_top_left_corner(&buffer).expect("expected overlay border");
         assert!(
@@ -203,7 +227,12 @@ mod tests {
     #[test]
     fn title_includes_date_display_of_selected_candidate() {
         let state = state_with(3, 1);
-        let anchor = Rect { x: 0, y: 1, width: 10, height: 1 };
+        let anchor = Rect {
+            x: 0,
+            y: 1,
+            width: 10,
+            height: 1,
+        };
         let buffer = render_to_buffer(80, 24, anchor, &state);
         let (_, top_y) = find_top_left_corner(&buffer).expect("expected overlay border");
         let top_row = row_text(&buffer, top_y);
@@ -216,7 +245,12 @@ mod tests {
     #[test]
     fn selected_row_has_distinct_background_styling() {
         let state = state_with(3, 1);
-        let anchor = Rect { x: 0, y: 1, width: 10, height: 1 };
+        let anchor = Rect {
+            x: 0,
+            y: 1,
+            width: 10,
+            height: 1,
+        };
         let buffer = render_to_buffer(80, 24, anchor, &state);
         let (overlay_x, overlay_y) = find_top_left_corner(&buffer).expect("overlay rendered");
         let inside_x = overlay_x + 2;

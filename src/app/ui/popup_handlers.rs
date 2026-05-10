@@ -261,4 +261,3 @@ impl UIComponents<'_> {
         Ok(HandleInputReturnType::Handled)
     }
 }
-

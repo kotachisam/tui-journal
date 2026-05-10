@@ -532,8 +532,7 @@ impl Editor<'_> {
         let trimmed = mention.query.trim();
         let anchor: String = trimmed.chars().take(MAX_ANCHOR_LEN).collect();
         let anchor_opt = (!anchor.is_empty()).then_some(anchor);
-        let token =
-            super::mention::format_mention_token(entry_id, anchor_opt.as_deref());
+        let token = super::mention::format_mention_token(entry_id, anchor_opt.as_deref());
         let (_, cursor_col) = self.text_area.cursor();
         let chars_to_remove = cursor_col.saturating_sub(mention.anchor_col);
 

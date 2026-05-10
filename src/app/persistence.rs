@@ -104,7 +104,9 @@ where
             })
             .collect();
 
-        let format_str = filename_format.as_deref().unwrap_or(DEFAULT_FILENAME_FORMAT);
+        let format_str = filename_format
+            .as_deref()
+            .unwrap_or(DEFAULT_FILENAME_FORMAT);
 
         let mut planned: Vec<(String, &Entry)> = Vec::with_capacity(matches.len());
         let mut by_name: HashMap<String, Vec<u32>> = HashMap::new();
@@ -121,9 +123,8 @@ where
             .collect();
         if !collisions.is_empty() {
             collisions.sort_by(|a, b| a.0.cmp(&b.0));
-            let mut msg = String::from(
-                "Filename format produces duplicates (add {id} to disambiguate):\n",
-            );
+            let mut msg =
+                String::from("Filename format produces duplicates (add {id} to disambiguate):\n");
             for (name, mut ids) in collisions {
                 ids.sort();
                 let _ = writeln!(msg, "  '{name}' from entries {ids:?}");
@@ -227,4 +228,3 @@ pub(crate) fn frontmatter_from(entry: &Entry) -> FrontmatterFields {
         tags: entry.tags.clone(),
     }
 }
-
