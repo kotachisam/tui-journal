@@ -76,6 +76,10 @@ pub struct Settings {
     /// Sets the visibility of the writing-streak indicator in the Journals
     /// panel title.
     pub streak_visibility: StreakVisibility,
+    #[serde(default = "default_streak_min_words")]
+    /// Minimum word count an entry's body must contain to count toward the
+    /// writing streak. Set to 0 to accept any non-whitespace content.
+    pub streak_min_words: u32,
     /// Overwrite the path for the directory used to persist the app state.
     pub app_state_dir: Option<PathBuf>,
     #[serde(default)]
@@ -103,6 +107,7 @@ impl Default for Settings {
             date_format: Default::default(),
             tag_visibility: Default::default(),
             streak_visibility: Default::default(),
+            streak_min_words: default_streak_min_words(),
             app_state_dir: Default::default(),
             notion: Default::default(),
             obsidian: Default::default(),
@@ -163,6 +168,10 @@ const fn default_history_limit() -> usize {
 
 const fn default_colored_tags() -> bool {
     true
+}
+
+const fn default_streak_min_words() -> u32 {
+    3
 }
 
 impl Settings {
@@ -227,6 +236,7 @@ impl Settings {
             date_format: _,
             tag_visibility: _,
             streak_visibility: _,
+            streak_min_words: _,
             app_state_dir: _,
             notion: _,
             obsidian: _,
@@ -353,6 +363,7 @@ mod tests {
         assert_eq!(settings.history_limit, 10);
         assert!(settings.colored_tags);
         assert_eq!(settings.streak_visibility, StreakVisibility::Show);
+        assert_eq!(settings.streak_min_words, 3);
     }
 
     #[tokio::test]
@@ -360,6 +371,20 @@ mod tests {
         let dir = config_dir_with(r#"streak_visibility = "hide""#);
         let settings = Settings::new(Some(dir.path().to_path_buf())).await.unwrap();
         assert_eq!(settings.streak_visibility, StreakVisibility::Hide);
+    }
+
+    #[tokio::test]
+    async fn streak_min_words_can_be_overridden_via_config() {
+        let dir = config_dir_with(r#"streak_min_words = 7"#);
+        let settings = Settings::new(Some(dir.path().to_path_buf())).await.unwrap();
+        assert_eq!(settings.streak_min_words, 7);
+    }
+
+    #[tokio::test]
+    async fn streak_min_words_accepts_zero() {
+        let dir = config_dir_with(r#"streak_min_words = 0"#);
+        let settings = Settings::new(Some(dir.path().to_path_buf())).await.unwrap();
+        assert_eq!(settings.streak_min_words, 0);
     }
 
     #[tokio::test]

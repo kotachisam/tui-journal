@@ -16,7 +16,7 @@ use backend::DataProvider;
 
 use crate::app::App;
 use crate::app::categories;
-use crate::app::streak::{StreakStatus, compute_streak};
+use crate::app::streak::{StreakStatus, compute_streak, qualifying_writing_days};
 use crate::{
     app::keymap::Keymap,
     settings::{DatumVisibility, StreakVisibility, TagVisibility},
@@ -265,13 +265,7 @@ impl EntriesList {
         let streak = match app.settings.streak_visibility {
             StreakVisibility::Hide => None,
             StreakVisibility::Show => {
-                let mut days: Vec<_> = app
-                    .entries
-                    .iter()
-                    .map(|e| e.date.with_timezone(&Local).date_naive())
-                    .collect();
-                days.sort();
-                days.dedup();
+                let days = qualifying_writing_days(&app.entries, app.settings.streak_min_words);
                 compute_streak(&days, Local::now().date_naive())
             }
         };
@@ -372,10 +366,9 @@ fn build_date_priority_lines<'a>(
     let mut id_appended = false;
     for line in raw_lines {
         let needs_id = !id_appended
-            && id_badge
-                .as_ref()
-                .is_some_and(|badge| line.starts_with(date_text)
-                    && line.len() + badge.len() <= content_width);
+            && id_badge.as_ref().is_some_and(|badge| {
+                line.starts_with(date_text) && line.len() + badge.len() <= content_width
+            });
         if needs_id {
             let badge = id_badge.clone().expect("id_badge present");
             lines.push(Line::from(vec![

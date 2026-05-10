@@ -1,4 +1,5 @@
-use chrono::NaiveDate;
+use backend::Entry;
+use chrono::{Local, NaiveDate};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StreakStatus {
@@ -6,10 +7,26 @@ pub enum StreakStatus {
     Jeopardy(u32),
 }
 
-pub fn compute_streak(
-    writing_days: &[NaiveDate],
-    today: NaiveDate,
-) -> Option<StreakStatus> {
+pub fn qualifying_writing_days(entries: &[Entry], min_words: u32) -> Vec<NaiveDate> {
+    let mut days: Vec<NaiveDate> = entries
+        .iter()
+        .filter(|e| entry_qualifies(e, min_words))
+        .map(|e| e.date.with_timezone(&Local).date_naive())
+        .collect();
+    days.sort();
+    days.dedup();
+    days
+}
+
+fn entry_qualifies(entry: &Entry, min_words: u32) -> bool {
+    let trimmed = entry.content.trim();
+    if min_words == 0 {
+        return !trimmed.is_empty();
+    }
+    trimmed.split_whitespace().count() as u32 >= min_words
+}
+
+pub fn compute_streak(writing_days: &[NaiveDate], today: NaiveDate) -> Option<StreakStatus> {
     let last = *writing_days.last()?;
     let gap = today.signed_duration_since(last).num_days();
     if !(0..2).contains(&gap) {
@@ -40,10 +57,57 @@ pub fn compute_streak(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::NaiveDate;
+    use chrono::{DateTime, NaiveDate, Utc};
 
     fn d(s: &str) -> NaiveDate {
         NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap()
+    }
+
+    fn entry_on(date_str: &str, content: &str) -> Entry {
+        let dt: DateTime<Utc> = format!("{date_str}T12:00:00Z").parse().unwrap();
+        Entry::new(0, dt, "t".into(), content.into(), vec![], None)
+    }
+
+    #[test]
+    fn qualifying_days_filters_below_threshold() {
+        let entries = vec![
+            entry_on("2026-05-06", "one"),
+            entry_on("2026-05-07", "one two three"),
+            entry_on("2026-05-08", "  "),
+            entry_on("2026-05-09", "four five six seven"),
+        ];
+        assert_eq!(
+            qualifying_writing_days(&entries, 3),
+            vec![d("2026-05-07"), d("2026-05-09")]
+        );
+    }
+
+    #[test]
+    fn qualifying_days_min_words_zero_accepts_any_non_whitespace() {
+        let entries = vec![
+            entry_on("2026-05-06", ""),
+            entry_on("2026-05-07", "   \n\t  "),
+            entry_on("2026-05-08", "x"),
+        ];
+        assert_eq!(qualifying_writing_days(&entries, 0), vec![d("2026-05-08")]);
+    }
+
+    #[test]
+    fn qualifying_days_dedupes_same_day_entries() {
+        let entries = vec![
+            entry_on("2026-05-08", "alpha bravo charlie"),
+            entry_on("2026-05-08", "delta echo foxtrot"),
+        ];
+        assert_eq!(qualifying_writing_days(&entries, 3), vec![d("2026-05-08")]);
+    }
+
+    #[test]
+    fn qualifying_days_ignores_title_only_entries() {
+        let entries = vec![entry_on("2026-05-08", "")];
+        assert_eq!(
+            qualifying_writing_days(&entries, 3),
+            Vec::<NaiveDate>::new()
+        );
     }
 
     #[test]
