@@ -146,9 +146,195 @@ async fn exec_headless_cmd<D: DataProvider>(
             log::info!("Exported {written} entries to {}", dir.display());
             println!("Exported {written} entries to {}", dir.display());
         }
+        PendingCliCommand::ObsidianSync { force } => {
+            run_obsidian_sync_headless(&app.data_provide, &app.settings.obsidian, force).await?;
+        }
+        PendingCliCommand::ObsidianStatus => {
+            print_obsidian_status(&app.data_provide, &app.settings.obsidian).await?;
+        }
+        PendingCliCommand::SyncAll { force_obsidian } => {
+            run_sync_all_headless(app, force_obsidian).await?;
+        }
         _ => unreachable!("exec_headless_cmd called with non-headless command"),
     }
     Ok(())
+}
+
+async fn run_obsidian_sync_headless<D: DataProvider>(
+    provider: &D,
+    settings: &crate::settings::obsidian::ObsidianSettings,
+    force: bool,
+) -> Result<()> {
+    if !settings.is_configured() {
+        anyhow::bail!(
+            "obsidian.vault_dir is not configured; add it to your config.toml under [obsidian]"
+        );
+    }
+    let vault = settings.vault_dir.as_ref().unwrap().display();
+    println!("Syncing entries to obsidian vault {vault} ...");
+    let outcome = crate::obsidian::push_to_obsidian(provider, settings, force).await?;
+    print_sync_outcome(&outcome);
+    if !outcome.errored.is_empty() {
+        anyhow::bail!("obsidian sync completed with {} errors", outcome.errored.len());
+    }
+    if !outcome.conflicts.is_empty() {
+        anyhow::bail!(
+            "obsidian sync refused to overwrite {} files modified since last sync; re-run with --force after merging",
+            outcome.conflicts.len()
+        );
+    }
+    Ok(())
+}
+
+async fn print_obsidian_status<D: DataProvider>(
+    provider: &D,
+    settings: &crate::settings::obsidian::ObsidianSettings,
+) -> Result<()> {
+    if !settings.is_configured() {
+        println!("obsidian: not configured (set obsidian.vault_dir in config.toml)");
+        return Ok(());
+    }
+    let entries = provider.load_all_entries().await?;
+    let live: Vec<_> = entries.iter().filter(|e| e.deleted_at.is_none()).collect();
+    let synced = live
+        .iter()
+        .filter(|e| e.obsidian_synced_at.is_some())
+        .count();
+    let unsynced = live.len() - synced;
+    let pending_deletes = entries
+        .iter()
+        .filter(|e| e.deleted_at.is_some() && e.obsidian_filename.is_some())
+        .count();
+    let last_sync = live
+        .iter()
+        .filter_map(|e| e.obsidian_synced_at)
+        .max()
+        .map(|t| t.to_rfc3339())
+        .unwrap_or_else(|| "never".to_string());
+    let vault = settings.vault_dir.as_ref().unwrap().display();
+    println!("obsidian.vault_dir = {vault}");
+    println!("filename_format    = {}", settings.filename_format_or_default());
+    println!("category_dirs      = {} mapped", settings.category_dirs.len());
+    println!("synced entries     = {synced} / {}", live.len());
+    println!("unsynced           = {unsynced}");
+    println!("pending deletes    = {pending_deletes}");
+    println!("last sync          = {last_sync}");
+    Ok(())
+}
+
+async fn run_sync_all_headless<D: DataProvider>(
+    app: &App<D>,
+    force_obsidian: bool,
+) -> Result<()> {
+    println!("Running notion sync ...");
+    let notion_settings = app.settings.notion.clone();
+    use crate::settings::notion::SyncMode;
+    let notion_result = match notion_settings.sync_mode {
+        SyncMode::Pull | SyncMode::TwoWay => {
+            crate::notion::pull_from_notion(&app.data_provide, &notion_settings, None).await
+                .map(|o| format!(
+                    "notion pull: inserted={}, updated={}, unchanged={}, local_wins={}, errored={}",
+                    o.inserted, o.updated, o.unchanged, o.local_wins, o.errored
+                ))
+        }
+        SyncMode::Push => {
+            crate::notion::push_to_notion(&app.data_provide, &notion_settings, None).await
+                .map(|o| format!(
+                    "notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
+                    o.created, o.updated, o.archived, o.skipped_unchanged, o.skipped_conflict, o.errored
+                ))
+        }
+        SyncMode::LocalOnly => Ok("notion: skipped (sync_mode = local_only)".to_string()),
+    };
+    let notion_ok = match &notion_result {
+        Ok(msg) => {
+            println!("{msg}");
+            true
+        }
+        Err(err) => {
+            println!("notion sync failed: {err}");
+            false
+        }
+    };
+
+    if app.settings.obsidian.is_configured() {
+        println!("Running obsidian sync ...");
+        let vault = app.settings.obsidian.vault_dir.as_ref().unwrap().display();
+        match crate::obsidian::push_to_obsidian(
+            &app.data_provide,
+            &app.settings.obsidian,
+            force_obsidian,
+        )
+        .await
+        {
+            Ok(outcome) => {
+                println!("obsidian sync to {vault}:");
+                print_sync_outcome(&outcome);
+            }
+            Err(err) => {
+                println!("obsidian sync failed: {err}");
+                if notion_ok {
+                    log::warn!("sync-all: notion succeeded but obsidian failed: {err}");
+                }
+            }
+        }
+    } else {
+        println!("obsidian: not configured, skipping");
+    }
+
+    if !notion_ok {
+        anyhow::bail!("notion sync failed (see message above)");
+    }
+    Ok(())
+}
+
+async fn fire_obsidian_after_notion<D: DataProvider>(
+    provider: &D,
+    settings: &crate::settings::obsidian::ObsidianSettings,
+) {
+    if !settings.enable_on_notion_sync || !settings.is_configured() {
+        return;
+    }
+    match crate::obsidian::push_to_obsidian(provider, settings, false).await {
+        Ok(outcome) => {
+            log::info!(
+                "Obsidian sync (after notion): written={}, skipped_unchanged={}, deleted={}, conflicts={}, unmapped={}, errored={}",
+                outcome.written,
+                outcome.skipped_unchanged,
+                outcome.deleted,
+                outcome.conflicts.len(),
+                outcome.skipped_unmapped.len(),
+                outcome.errored.len()
+            );
+        }
+        Err(err) => {
+            log::warn!("Obsidian sync after notion failed (notion sync was successful): {err}");
+        }
+    }
+}
+
+fn print_sync_outcome(outcome: &crate::obsidian::SyncOutcome) {
+    println!(
+        "  written={}, skipped_unchanged={}, deleted={}, conflicts={}, unmapped={}, errored={}",
+        outcome.written,
+        outcome.skipped_unchanged,
+        outcome.deleted,
+        outcome.conflicts.len(),
+        outcome.skipped_unmapped.len(),
+        outcome.errored.len()
+    );
+    for c in &outcome.conflicts {
+        println!("  conflict: entry {} -> {}", c.entry_id, c.path.display());
+    }
+    for u in &outcome.skipped_unmapped {
+        println!(
+            "  unmapped: entry {} (category '{}')",
+            u.entry_id, u.category
+        );
+    }
+    for e in &outcome.errored {
+        println!("  error: entry {}: {}", e.entry_id, e.message);
+    }
 }
 
 pub async fn run<B: Backend>(
@@ -289,6 +475,7 @@ where
                         outcome.skipped_conflict,
                         outcome.errored,
                     );
+                    fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
                     if let Err(err) = app.load_entries().await {
                         log::warn!("Failed to refresh entries after push: {err}");
                     }
@@ -359,6 +546,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.local_wins,
                 outcome.errored
             );
+            fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
         }
         PendingCliCommand::ExportActivityLog => {
             let entries = app.get_activity_log().await?;
@@ -392,6 +580,12 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.skipped_conflict,
                 outcome.errored
             );
+            fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
+        }
+        PendingCliCommand::ObsidianSync { .. }
+        | PendingCliCommand::ObsidianStatus
+        | PendingCliCommand::SyncAll { .. } => {
+            unreachable!("headless command leaked into TUI exec path")
         }
     }
 

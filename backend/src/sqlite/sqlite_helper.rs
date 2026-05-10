@@ -20,6 +20,10 @@ pub(crate) struct EntryIntermediate {
     pub deleted_at: Option<DateTime<Utc>>,
     pub updated_at: Option<DateTime<Utc>>,
     pub source_last_edited_at: Option<DateTime<Utc>>,
+    pub obsidian_synced_at: Option<DateTime<Utc>>,
+    pub obsidian_content_hash: Option<String>,
+    pub obsidian_filename: Option<String>,
+    pub obsidian_relative_dir: Option<String>,
 }
 
 impl From<EntryIntermediate> for Entry {
@@ -46,6 +50,10 @@ impl From<EntryIntermediate> for Entry {
             deleted_at: value.deleted_at,
             updated_at: value.updated_at,
             source_last_edited_at: value.source_last_edited_at,
+            obsidian_synced_at: value.obsidian_synced_at,
+            obsidian_content_hash: value.obsidian_content_hash,
+            obsidian_filename: value.obsidian_filename,
+            obsidian_relative_dir: value.obsidian_relative_dir,
         }
     }
 }
@@ -127,6 +135,10 @@ mod tests {
             deleted_at: None,
             updated_at: None,
             source_last_edited_at: None,
+            obsidian_synced_at: None,
+            obsidian_content_hash: None,
+            obsidian_filename: None,
+            obsidian_relative_dir: None,
         }
     }
 

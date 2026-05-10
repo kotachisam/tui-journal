@@ -218,7 +218,7 @@ fn slug_for_filename(title: &str) -> String {
     }
 }
 
-fn write_frontmatter(entry: &Entry, buf: &mut String) {
+pub(crate) fn write_frontmatter(entry: &Entry, buf: &mut String) {
     buf.push_str("---\n");
     buf.push_str(&format!("id: {}\n", entry.id));
     buf.push_str(&format!("title: {}\n", yaml_scalar(&entry.title)));
@@ -249,7 +249,7 @@ fn yaml_scalar(s: &str) -> String {
 
 const DEFAULT_FILENAME_FORMAT: &str = "{id}-{slug}";
 
-fn render_filename(fmt: &str, entry: &Entry) -> anyhow::Result<String> {
+pub(crate) fn render_filename(fmt: &str, entry: &Entry) -> anyhow::Result<String> {
     let mut out = String::with_capacity(fmt.len() + 16);
     let mut chars = fmt.chars().peekable();
     while let Some(ch) = chars.next() {

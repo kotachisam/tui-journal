@@ -54,6 +54,10 @@ mod tests {
             deleted_at: None,
             updated_at: None,
             source_last_edited_at: None,
+            obsidian_synced_at: None,
+            obsidian_content_hash: None,
+            obsidian_filename: None,
+            obsidian_relative_dir: None,
         }
     }
 

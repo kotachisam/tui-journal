@@ -143,6 +143,37 @@ impl DataProvider for JsonDataProvide {
 
         Ok(())
     }
+
+    async fn set_obsidian_sync_state(
+        &self,
+        entry_id: u32,
+        synced_at: DateTime<Utc>,
+        content_hash: &str,
+        filename: &str,
+        relative_dir: &str,
+    ) -> anyhow::Result<()> {
+        let mut entries = self.load_all_entries().await?;
+        if let Some(entry) = entries.iter_mut().find(|e| e.id == entry_id) {
+            entry.obsidian_synced_at = Some(synced_at);
+            entry.obsidian_content_hash = Some(content_hash.to_string());
+            entry.obsidian_filename = Some(filename.to_string());
+            entry.obsidian_relative_dir = Some(relative_dir.to_string());
+            self.write_entries_to_file(&entries).await?;
+        }
+        Ok(())
+    }
+
+    async fn clear_obsidian_sync_state(&self, entry_id: u32) -> anyhow::Result<()> {
+        let mut entries = self.load_all_entries().await?;
+        if let Some(entry) = entries.iter_mut().find(|e| e.id == entry_id) {
+            entry.obsidian_synced_at = None;
+            entry.obsidian_content_hash = None;
+            entry.obsidian_filename = None;
+            entry.obsidian_relative_dir = None;
+            self.write_entries_to_file(&entries).await?;
+        }
+        Ok(())
+    }
 }
 
 impl JsonDataProvide {

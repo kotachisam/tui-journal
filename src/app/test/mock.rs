@@ -121,4 +121,19 @@ impl DataProvider for MockDataProvider {
     async fn assign_priority_to_entries(&self, _priority: u32) -> anyhow::Result<()> {
         unimplemented!("There are not tests for assigning priority on the app level");
     }
+
+    async fn set_obsidian_sync_state(
+        &self,
+        _entry_id: u32,
+        _synced_at: chrono::DateTime<chrono::Utc>,
+        _content_hash: &str,
+        _filename: &str,
+        _relative_dir: &str,
+    ) -> anyhow::Result<()> {
+        unimplemented!("Obsidian sync not exercised in app-level tests");
+    }
+
+    async fn clear_obsidian_sync_state(&self, _entry_id: u32) -> anyhow::Result<()> {
+        unimplemented!("Obsidian sync not exercised in app-level tests");
+    }
 }

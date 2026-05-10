@@ -16,6 +16,7 @@ mod app;
 mod cli;
 mod logging;
 mod notion;
+mod obsidian;
 mod settings;
 
 struct TerminalGuard {

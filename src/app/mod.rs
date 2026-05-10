@@ -13,7 +13,7 @@ mod filter;
 mod filter_sort;
 mod history;
 mod keymap;
-mod persistence;
+pub(crate) mod persistence;
 mod runner;
 mod sorter;
 pub mod state;

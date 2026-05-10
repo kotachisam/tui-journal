@@ -21,11 +21,15 @@ pub use self::date_format::DateFormat;
 use self::json_backend::{JsonBackend, get_default_json_path};
 #[cfg(feature = "sqlite")]
 use self::sqlite_backend::{SqliteBackend, get_default_sqlite_path};
-use self::{export::ExportSettings, external_editor::ExternalEditor, notion::NotionSettings};
+use self::{
+    export::ExportSettings, external_editor::ExternalEditor, notion::NotionSettings,
+    obsidian::ObsidianSettings,
+};
 
 #[cfg(feature = "json")]
 pub mod json_backend;
 pub mod notion;
+pub mod obsidian;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
 
@@ -76,6 +80,8 @@ pub struct Settings {
     pub app_state_dir: Option<PathBuf>,
     #[serde(default)]
     pub notion: NotionSettings,
+    #[serde(default)]
+    pub obsidian: ObsidianSettings,
 }
 
 impl Default for Settings {
@@ -99,6 +105,7 @@ impl Default for Settings {
             streak_visibility: Default::default(),
             app_state_dir: Default::default(),
             notion: Default::default(),
+            obsidian: Default::default(),
         }
     }
 }
@@ -180,7 +187,7 @@ impl Settings {
             settings_file_path(&default_dir)
         };
 
-        let settings = if config_file.exists() {
+        let settings: Settings = if config_file.exists() {
             let file_content = tokio::fs::read_to_string(config_file)
                 .await
                 .map_err(|err| anyhow!("Failed to load configuration file. Error infos: {err}"))?;
@@ -189,6 +196,8 @@ impl Settings {
         } else {
             Settings::default()
         };
+
+        settings.obsidian.validate()?;
 
         Ok(settings)
     }
@@ -220,6 +229,7 @@ impl Settings {
             streak_visibility: _,
             app_state_dir: _,
             notion: _,
+            obsidian: _,
         } = self;
 
         if self.backend_type.is_none() {

@@ -78,6 +78,23 @@ pub trait DataProvider {
     async fn get_activity_log(&self) -> anyhow::Result<Vec<ActivityLogEntry>> {
         Ok(Vec::new())
     }
+
+    /// Records that an entry was successfully written to the Obsidian vault.
+    /// Stores the content hash (for skip-unchanged), the filename, and the
+    /// vault-relative directory the file was placed in so a later filename
+    /// or category change can unlink the old file.
+    async fn set_obsidian_sync_state(
+        &self,
+        entry_id: u32,
+        synced_at: DateTime<Utc>,
+        content_hash: &str,
+        filename: &str,
+        relative_dir: &str,
+    ) -> anyhow::Result<()>;
+
+    /// Clears the Obsidian sync state for an entry — used after the file is
+    /// unlinked (e.g. entry deleted in tjournal, file removed from vault).
+    async fn clear_obsidian_sync_state(&self, entry_id: u32) -> anyhow::Result<()>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -133,6 +150,14 @@ pub struct Entry {
     pub updated_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub source_last_edited_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub obsidian_synced_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub obsidian_content_hash: Option<String>,
+    #[serde(default)]
+    pub obsidian_filename: Option<String>,
+    #[serde(default)]
+    pub obsidian_relative_dir: Option<String>,
 }
 
 impl Entry {
@@ -159,6 +184,10 @@ impl Entry {
             deleted_at: None,
             updated_at: None,
             source_last_edited_at: None,
+            obsidian_synced_at: None,
+            obsidian_content_hash: None,
+            obsidian_filename: None,
+            obsidian_relative_dir: None,
         }
     }
 
@@ -177,6 +206,10 @@ impl Entry {
             deleted_at: draft.deleted_at,
             updated_at: draft.updated_at,
             source_last_edited_at: draft.source_last_edited_at,
+            obsidian_synced_at: None,
+            obsidian_content_hash: None,
+            obsidian_filename: None,
+            obsidian_relative_dir: None,
         }
     }
 }
@@ -349,6 +382,21 @@ mod tests {
         }
 
         async fn assign_priority_to_entries(&self, _priority: u32) -> anyhow::Result<()> {
+            unreachable!("not used in these tests");
+        }
+
+        async fn set_obsidian_sync_state(
+            &self,
+            _entry_id: u32,
+            _synced_at: DateTime<Utc>,
+            _content_hash: &str,
+            _filename: &str,
+            _relative_dir: &str,
+        ) -> anyhow::Result<()> {
+            unreachable!("not used in these tests");
+        }
+
+        async fn clear_obsidian_sync_state(&self, _entry_id: u32) -> anyhow::Result<()> {
             unreachable!("not used in these tests");
         }
     }

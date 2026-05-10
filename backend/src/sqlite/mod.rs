@@ -95,6 +95,8 @@ impl DataProvider for SqliteDataProvide {
                 entries.category,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
                 entries.updated_at, entries.source_last_edited_at,
+                entries.obsidian_synced_at, entries.obsidian_content_hash,
+                entries.obsidian_filename, entries.obsidian_relative_dir,
                 GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id
@@ -301,6 +303,8 @@ impl DataProvider for SqliteDataProvide {
                 entries.category,
                 entries.sync_provider, entries.external_id, entries.last_synced_at, entries.deleted_at,
                 entries.updated_at, entries.source_last_edited_at,
+                entries.obsidian_synced_at, entries.obsidian_content_hash,
+                entries.obsidian_filename, entries.obsidian_relative_dir,
                 GROUP_CONCAT(tags.tag) AS tags
             FROM entries
             LEFT JOIN tags ON entries.id = tags.entry_id
@@ -394,5 +398,48 @@ impl DataProvider for SqliteDataProvide {
         })?;
 
         Ok(rows.into_iter().map(ActivityLogEntry::from).collect())
+    }
+
+    async fn set_obsidian_sync_state(
+        &self,
+        entry_id: u32,
+        synced_at: DateTime<Utc>,
+        content_hash: &str,
+        filename: &str,
+        relative_dir: &str,
+    ) -> anyhow::Result<()> {
+        sqlx::query(
+            r"UPDATE entries
+            SET obsidian_synced_at = $1,
+                obsidian_content_hash = $2,
+                obsidian_filename = $3,
+                obsidian_relative_dir = $4
+            WHERE id = $5",
+        )
+        .bind(synced_at)
+        .bind(content_hash)
+        .bind(filename)
+        .bind(relative_dir)
+        .bind(entry_id)
+        .execute(&self.pool)
+        .await
+        .with_context(|| format!("Failed to set obsidian sync state for entry {entry_id}"))?;
+        Ok(())
+    }
+
+    async fn clear_obsidian_sync_state(&self, entry_id: u32) -> anyhow::Result<()> {
+        sqlx::query(
+            r"UPDATE entries
+            SET obsidian_synced_at = NULL,
+                obsidian_content_hash = NULL,
+                obsidian_filename = NULL,
+                obsidian_relative_dir = NULL
+            WHERE id = $1",
+        )
+        .bind(entry_id)
+        .execute(&self.pool)
+        .await
+        .with_context(|| format!("Failed to clear obsidian sync state for entry {entry_id}"))?;
+        Ok(())
     }
 }

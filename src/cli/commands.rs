@@ -33,6 +33,16 @@ pub enum CliCommand {
     /// Provides commands for syncing with external providers.
     #[command(subcommand)]
     Notion(NotionCommand),
+    /// Sync entries to the configured Obsidian vault.
+    #[command(subcommand)]
+    Obsidian(ObsidianCommand),
+    /// Run all configured syncs (notion + obsidian) in a single command.
+    /// Failures in obsidian don't fail the overall command if notion succeeded.
+    SyncAll {
+        /// Force-overwrite obsidian conflicts (files modified since last sync).
+        #[arg(long)]
+        force_obsidian: bool,
+    },
     /// Dump the activity log as JSON to stdout, newest first. Pipe through
     /// jq for filtering.
     Log,
@@ -91,6 +101,22 @@ pub enum NotionCommand {
 }
 
 #[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
+pub enum ObsidianCommand {
+    /// Sync stale entries to the Obsidian vault. Skips entries whose content
+    /// hash matches the last sync. Refuses to overwrite files modified since
+    /// last sync (Obsidian-side edits) unless --force is passed.
+    Sync {
+        /// Overwrite even if the target file mtime is newer than the last
+        /// recorded sync time. Use after manually merging Obsidian edits
+        /// back into tjournal.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Print sync status: configured vault, unsynced entry count, latest sync time.
+    Status,
+}
+
+#[derive(Debug, Clone, Subcommand, Eq, PartialEq)]
 pub enum Themes {
     #[clap(visible_alias = "path")]
     /// Prints the path to the user themes file.
@@ -124,6 +150,13 @@ pub enum PendingCliCommand {
         tag: Option<String>,
         filename_format: Option<String>,
     },
+    ObsidianSync {
+        force: bool,
+    },
+    ObsidianStatus,
+    SyncAll {
+        force_obsidian: bool,
+    },
 }
 
 impl PendingCliCommand {
@@ -133,7 +166,11 @@ impl PendingCliCommand {
     pub fn is_headless(&self) -> bool {
         matches!(
             self,
-            PendingCliCommand::ExportToDirectory { .. } | PendingCliCommand::ExportActivityLog
+            PendingCliCommand::ExportToDirectory { .. }
+                | PendingCliCommand::ExportActivityLog
+                | PendingCliCommand::ObsidianSync { .. }
+                | PendingCliCommand::ObsidianStatus
+                | PendingCliCommand::SyncAll { .. }
         )
     }
 }
@@ -185,6 +222,15 @@ impl CliCommand {
                     tag,
                     filename_format,
                 },
+            )),
+            CliCommand::Obsidian(ObsidianCommand::Sync { force }) => Ok(
+                CliResult::PendingCommand(PendingCliCommand::ObsidianSync { force }),
+            ),
+            CliCommand::Obsidian(ObsidianCommand::Status) => Ok(CliResult::PendingCommand(
+                PendingCliCommand::ObsidianStatus,
+            )),
+            CliCommand::SyncAll { force_obsidian } => Ok(CliResult::PendingCommand(
+                PendingCliCommand::SyncAll { force_obsidian },
             )),
         }
     }
