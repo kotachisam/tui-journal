@@ -3,6 +3,10 @@ use backend::{DataProvider, EntriesDTO, Entry};
 use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::{fs::File, path::PathBuf};
+use tj_publisher::markdown::{
+    DEFAULT_FILENAME_FORMAT, FrontmatterFields, RenderableEntry, render_filename as md_render,
+    write_frontmatter as md_write_frontmatter,
+};
 
 use super::App;
 use super::state::AppState;
@@ -198,226 +202,29 @@ where
     }
 }
 
-fn slug_for_filename(title: &str) -> String {
-    let mut out = String::with_capacity(title.len());
-    let mut last_dash = false;
-    for ch in title.chars() {
-        if ch.is_ascii_alphanumeric() {
-            out.push(ch.to_ascii_lowercase());
-            last_dash = false;
-        } else if !last_dash {
-            out.push('-');
-            last_dash = true;
-        }
-    }
-    let trimmed = out.trim_matches('-').to_string();
-    if trimmed.is_empty() {
-        "untitled".to_string()
-    } else {
-        trimmed
-    }
-}
-
 pub(crate) fn write_frontmatter(entry: &Entry, buf: &mut String) {
-    buf.push_str("---\n");
-    buf.push_str(&format!("id: {}\n", entry.id));
-    buf.push_str(&format!("title: {}\n", yaml_scalar(&entry.title)));
-    buf.push_str(&format!("date: {}\n", entry.date.to_rfc3339()));
-    if let Some(p) = entry.priority {
-        buf.push_str(&format!("priority: {p}\n"));
-    }
-    if !entry.tags.is_empty() {
-        buf.push_str("tags:\n");
-        for tag in &entry.tags {
-            buf.push_str(&format!("  - {}\n", yaml_scalar(tag)));
-        }
-    }
-    buf.push_str("---\n\n");
+    md_write_frontmatter(&frontmatter_from(entry), buf);
 }
-
-fn yaml_scalar(s: &str) -> String {
-    let safe = !s.is_empty()
-        && s.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == ' ' || c == '-' || c == '_');
-    if safe {
-        s.to_string()
-    } else {
-        let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
-        format!("\"{escaped}\"")
-    }
-}
-
-const DEFAULT_FILENAME_FORMAT: &str = "{id}-{slug}";
 
 pub(crate) fn render_filename(fmt: &str, entry: &Entry) -> anyhow::Result<String> {
-    let mut out = String::with_capacity(fmt.len() + 16);
-    let mut chars = fmt.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch != '{' {
-            out.push(ch);
-            continue;
-        }
-        let mut token = String::new();
-        let mut closed = false;
-        for tc in chars.by_ref() {
-            if tc == '}' {
-                closed = true;
-                break;
-            }
-            token.push(tc);
-        }
-        if !closed {
-            bail!("Unclosed '{{' in filename format");
-        }
-        let (name, spec) = match token.split_once(':') {
-            Some((n, s)) => (n, Some(s)),
-            None => (token.as_str(), None),
-        };
-        match name {
-            "id" => {
-                if spec.is_some() {
-                    bail!("Token {{id}} does not accept a format spec");
-                }
-                let _ = write!(out, "{}", entry.id);
-            }
-            "slug" | "title" => {
-                if spec.is_some() {
-                    bail!("Token {{{name}}} does not accept a format spec");
-                }
-                out.push_str(&slug_for_filename(&entry.title));
-            }
-            "date" => {
-                let spec = spec.unwrap_or("%Y-%m-%d");
-                let mut tmp = String::new();
-                if write!(&mut tmp, "{}", entry.date.format(spec)).is_err() {
-                    bail!("Invalid date format spec: '{spec}'");
-                }
-                out.push_str(&tmp);
-            }
-            other => bail!("Unknown token '{{{other}}}' in filename format"),
-        }
-    }
-    if !out.ends_with(".md") {
-        out.push_str(".md");
-    }
-    validate_filename_safety(&out)?;
-    Ok(out)
+    md_render(fmt, &renderable_from(entry))
 }
 
-fn validate_filename_safety(name: &str) -> anyhow::Result<()> {
-    if name.is_empty() || name == ".md" {
-        bail!("Filename format produced empty filename");
-    }
-    if name.contains('/') || name.contains('\\') {
-        bail!("Filename format produced path separator: '{name}'");
-    }
-    if name.starts_with('.') {
-        bail!("Filename format produced hidden file: '{name}'");
-    }
-    if name == "." || name == ".." {
-        bail!("Filename format produced reserved name: '{name}'");
-    }
-    Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn mk_entry(id: u32, title: &str, date: &str) -> Entry {
-        let date = chrono::NaiveDateTime::parse_from_str(
-            &format!("{date} 00:00:00"),
-            "%Y-%m-%d %H:%M:%S",
-        )
-        .unwrap()
-        .and_utc();
-        Entry::new(id, date, title.to_string(), String::new(), vec![], None)
-    }
-
-    #[test]
-    fn default_format_matches_legacy_pattern() {
-        let e = mk_entry(42, "Hello World", "2026-01-02");
-        assert_eq!(
-            render_filename(DEFAULT_FILENAME_FORMAT, &e).unwrap(),
-            "42-hello-world.md"
-        );
-    }
-
-    #[test]
-    fn empty_title_uses_untitled_slug() {
-        let e = mk_entry(7, "", "2026-01-02");
-        assert_eq!(
-            render_filename(DEFAULT_FILENAME_FORMAT, &e).unwrap(),
-            "7-untitled.md"
-        );
-    }
-
-    #[test]
-    fn date_format_yyyy_mm_dd() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert_eq!(
-            render_filename("{date:%Y-%m-%d}", &e).unwrap(),
-            "2026-04-19.md"
-        );
-    }
-
-    #[test]
-    fn mixed_tokens() {
-        let e = mk_entry(99, "Big Day", "2026-04-19");
-        assert_eq!(
-            render_filename("{date:%Y-%m-%d}-{slug}", &e).unwrap(),
-            "2026-04-19-big-day.md"
-        );
-    }
-
-    #[test]
-    fn date_default_spec_when_omitted() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert_eq!(render_filename("{date}", &e).unwrap(), "2026-04-19.md");
-    }
-
-    #[test]
-    fn explicit_md_extension_not_doubled() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert_eq!(
-            render_filename("{date:%Y-%m-%d}.md", &e).unwrap(),
-            "2026-04-19.md"
-        );
-    }
-
-    #[test]
-    fn unknown_token_errors() {
-        let e = mk_entry(1, "x", "2026-04-19");
-        assert!(render_filename("{nope}", &e).is_err());
-    }
-
-    #[test]
-    fn unclosed_brace_errors() {
-        let e = mk_entry(1, "x", "2026-04-19");
-        assert!(render_filename("{id-no-close", &e).is_err());
-    }
-
-    #[test]
-    fn rejects_path_separator_via_date_spec() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert!(render_filename("{date:%Y/%m/%d}", &e).is_err());
-    }
-
-    #[test]
-    fn rejects_hidden_file() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert!(render_filename(".hidden-{id}", &e).is_err());
-    }
-
-    #[test]
-    fn invalid_strftime_spec_errors() {
-        let e = mk_entry(1, "", "2026-04-19");
-        assert!(render_filename("{date:%Q}", &e).is_err());
-    }
-
-    #[test]
-    fn id_does_not_accept_spec() {
-        let e = mk_entry(1, "x", "2026-04-19");
-        assert!(render_filename("{id:foo}", &e).is_err());
+pub(crate) fn renderable_from(entry: &Entry) -> RenderableEntry {
+    RenderableEntry {
+        id: entry.id as u64,
+        date: entry.date,
+        title: entry.title.clone(),
     }
 }
+
+pub(crate) fn frontmatter_from(entry: &Entry) -> FrontmatterFields {
+    FrontmatterFields {
+        id: entry.id as u64,
+        title: entry.title.clone(),
+        date: entry.date,
+        priority: entry.priority,
+        tags: entry.tags.clone(),
+    }
+}
+

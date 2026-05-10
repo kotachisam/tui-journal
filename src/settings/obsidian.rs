@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::{Deserialize, Serialize};
+use tj_publisher::obsidian::ObsidianConfig;
 
 #[derive(Debug, Default, Deserialize, Serialize, Clone)]
 pub struct ObsidianSettings {
@@ -43,10 +44,15 @@ impl ObsidianSettings {
             .unwrap_or(DEFAULT_FILENAME_FORMAT)
     }
 
-    /// Resolve vault-relative dir for a given category. Returns None when the
-    /// category has no mapping (caller should skip + warn).
-    pub fn dir_for_category(&self, category: &str) -> Option<&str> {
-        self.category_dirs.get(category).map(String::as_str)
+    /// Build the publisher's pure-config view from these settings. Returns
+    /// `None` when not configured (caller should skip sync).
+    pub fn to_publisher_config(&self) -> Option<ObsidianConfig> {
+        let vault_dir = self.vault_dir.clone()?;
+        Some(ObsidianConfig {
+            vault_dir,
+            filename_format: self.filename_format_or_default().to_string(),
+            category_dirs: self.category_dirs.clone(),
+        })
     }
 
     /// Validate that no category dir contains a path-traversal segment or an
@@ -136,9 +142,17 @@ mod tests {
     }
 
     #[test]
-    fn dir_for_category_returns_mapped() {
+    fn to_publisher_config_round_trip() {
         let s = settings_with_dirs(&[("journal", "DAILY Journal")]);
-        assert_eq!(s.dir_for_category("journal"), Some("DAILY Journal"));
-        assert_eq!(s.dir_for_category("post"), None);
+        let cfg = s.to_publisher_config().unwrap();
+        assert_eq!(cfg.vault_dir, std::path::PathBuf::from("/tmp/vault"));
+        assert_eq!(cfg.category_dirs.get("journal"), Some(&"DAILY Journal".to_string()));
+        assert!(cfg.filename_format.contains("{date"));
+    }
+
+    #[test]
+    fn to_publisher_config_returns_none_when_unset() {
+        let s = ObsidianSettings::default();
+        assert!(s.to_publisher_config().is_none());
     }
 }

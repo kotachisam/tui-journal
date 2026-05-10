@@ -174,13 +174,13 @@ async fn run_obsidian_sync_headless<D: DataProvider>(
     println!("Syncing entries to obsidian vault {vault} ...");
     let outcome = crate::obsidian::push_to_obsidian(provider, settings, force).await?;
     print_sync_outcome(&outcome);
-    if !outcome.errored.is_empty() {
-        anyhow::bail!("obsidian sync completed with {} errors", outcome.errored.len());
+    if outcome.errored() > 0 {
+        anyhow::bail!("obsidian sync completed with {} errors", outcome.errored());
     }
-    if !outcome.conflicts.is_empty() {
+    if outcome.conflicted() > 0 {
         anyhow::bail!(
             "obsidian sync refused to overwrite {} files modified since last sync; re-run with --force after merging",
-            outcome.conflicts.len()
+            outcome.conflicted()
         );
     }
     Ok(())
@@ -299,12 +299,12 @@ async fn fire_obsidian_after_notion<D: DataProvider>(
         Ok(outcome) => {
             log::info!(
                 "Obsidian sync (after notion): written={}, skipped_unchanged={}, deleted={}, conflicts={}, unmapped={}, errored={}",
-                outcome.written,
-                outcome.skipped_unchanged,
-                outcome.deleted,
-                outcome.conflicts.len(),
-                outcome.skipped_unmapped.len(),
-                outcome.errored.len()
+                outcome.written(),
+                outcome.skipped(),
+                outcome.deleted(),
+                outcome.conflicted(),
+                outcome.unmapped(),
+                outcome.errored()
             );
         }
         Err(err) => {
@@ -316,24 +316,26 @@ async fn fire_obsidian_after_notion<D: DataProvider>(
 fn print_sync_outcome(outcome: &crate::obsidian::SyncOutcome) {
     println!(
         "  written={}, skipped_unchanged={}, deleted={}, conflicts={}, unmapped={}, errored={}",
-        outcome.written,
-        outcome.skipped_unchanged,
-        outcome.deleted,
-        outcome.conflicts.len(),
-        outcome.skipped_unmapped.len(),
-        outcome.errored.len()
+        outcome.written(),
+        outcome.skipped(),
+        outcome.deleted(),
+        outcome.conflicted(),
+        outcome.unmapped(),
+        outcome.errored()
     );
-    for c in &outcome.conflicts {
-        println!("  conflict: entry {} -> {}", c.entry_id, c.path.display());
-    }
-    for u in &outcome.skipped_unmapped {
-        println!(
-            "  unmapped: entry {} (category '{}')",
-            u.entry_id, u.category
-        );
-    }
-    for e in &outcome.errored {
-        println!("  error: entry {}: {}", e.entry_id, e.message);
+    for action in &outcome.actions {
+        match action {
+            crate::obsidian::EntryAction::Conflict { entry_id, path } => {
+                println!("  conflict: entry {entry_id} -> {}", path.display());
+            }
+            crate::obsidian::EntryAction::UnmappedCategory { entry_id, category } => {
+                println!("  unmapped: entry {entry_id} (category '{category}')");
+            }
+            crate::obsidian::EntryAction::Errored { entry_id, message } => {
+                println!("  error: entry {entry_id}: {message}");
+            }
+            _ => {}
+        }
     }
 }
 
