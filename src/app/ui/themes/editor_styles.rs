@@ -21,6 +21,8 @@ pub struct EditorStyles {
     pub cursor_visual: Style,
     #[serde(default = "selection_style")]
     pub selection_style: Style,
+    #[serde(default = "placeholder_ghost")]
+    pub placeholder_ghost: Style,
 }
 
 impl Default for EditorStyles {
@@ -34,6 +36,7 @@ impl Default for EditorStyles {
             cursor_insert: cursor_insert(),
             cursor_visual: cursor_visual(),
             selection_style: selection_style(),
+            placeholder_ghost: placeholder_ghost(),
         }
     }
 }
@@ -105,6 +108,15 @@ fn selection_style() -> Style {
     Style {
         fg: Some(Color::Black),
         bg: Some(Color::White),
+        ..Default::default()
+    }
+}
+
+#[inline]
+fn placeholder_ghost() -> Style {
+    Style {
+        fg: Some(Color::DarkGray),
+        modifiers: Modifier::ITALIC,
         ..Default::default()
     }
 }

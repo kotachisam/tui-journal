@@ -25,6 +25,7 @@ impl Editor<'_> {
         self.mode = EditorMode::Normal;
         self.show_preview = true;
         self.preview_scroll = 0;
+        self.reroll_placeholder_seed();
 
         self.refresh_has_unsaved(app);
     }

@@ -1,3 +1,4 @@
+use chrono::Local;
 use markdown_tui::widget::MarkdownWidget;
 use ratatui::{
     Frame,
@@ -16,12 +17,41 @@ use ratatui::text::Span;
 use backend::DataProvider;
 
 use crate::app::App;
+use crate::app::streak::{StreakStatus, compute_streak, qualifying_writing_days};
 use crate::app::ui::Styles;
 
 use super::mention::RenderedMention;
+use super::placeholder::pick_placeholder;
 use super::{Editor, EditorMode, MentionHitbox, highlight::patch_preview_highlights};
 
 impl Editor<'_> {
+    fn has_no_content(&self) -> bool {
+        self.text_area.lines().iter().all(|l| l.trim().is_empty())
+    }
+
+    fn render_placeholder_overlay<D: DataProvider>(
+        &self,
+        frame: &mut Frame,
+        inner: Rect,
+        styles: &Styles,
+        app: &App<D>,
+    ) {
+        if inner.width < 3 || inner.height == 0 {
+            return;
+        }
+        let streak = current_streak(app);
+        let line = pick_placeholder(self.placeholder_seed, streak);
+        let style: Style = styles.editor.placeholder_ghost.into();
+        let para = Paragraph::new(Line::styled(line, style));
+        let ghost_area = Rect {
+            x: inner.x + 1,
+            y: inner.y,
+            width: inner.width.saturating_sub(1),
+            height: 1,
+        };
+        frame.render_widget(para, ghost_area);
+    }
+
     pub fn render_widget<D: DataProvider>(
         &mut self,
         frame: &mut Frame,
@@ -114,6 +144,10 @@ impl Editor<'_> {
             super::mention::render_overlay(frame, anchor, mention);
         }
 
+        if self.has_no_content() {
+            self.render_placeholder_overlay(frame, inner, styles, app);
+        }
+
         self.render_vertical_scrollbar(frame, area);
         self.render_horizontal_scrollbar(frame, area);
     }
@@ -196,6 +230,10 @@ impl Editor<'_> {
 
         let total_rows = estimate_visual_rows(&rendered_content, inner.width);
         self.render_preview_scrollbar(frame, area, inner, total_rows);
+
+        if self.has_no_content() {
+            self.render_placeholder_overlay(frame, inner, styles, app);
+        }
     }
 
     fn render_wrap_edit<D: DataProvider>(
@@ -297,6 +335,10 @@ impl Editor<'_> {
 
         let total_rows = (rows.len() as u16).max(1);
         self.render_preview_scrollbar(frame, area, inner, total_rows);
+
+        if self.has_no_content() {
+            self.render_placeholder_overlay(frame, inner, styles, app);
+        }
     }
 
     fn render_preview_scrollbar(
@@ -507,6 +549,13 @@ pub(super) fn visual_to_source(rows: &[WrapRow], target_vrow: u16, vcol: u16) ->
     let row_chars = row.content.chars().count();
     let clamped = (vcol as usize).min(row_chars);
     (row.source_line, row.source_start + clamped)
+}
+
+fn current_streak<D: DataProvider>(app: &App<D>) -> Option<u32> {
+    let days = qualifying_writing_days(&app.entries, app.settings.streak_min_words);
+    match compute_streak(&days, Local::now().date_naive())? {
+        StreakStatus::Active(n) | StreakStatus::Jeopardy(n) => Some(n),
+    }
 }
 
 fn estimate_visual_rows(content: &str, width: u16) -> u16 {

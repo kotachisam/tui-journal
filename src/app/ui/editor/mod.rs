@@ -1,4 +1,13 @@
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use tui_textarea::TextArea;
+
+fn fresh_placeholder_seed() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
 
 mod clipboard;
 mod content;
@@ -8,6 +17,7 @@ pub(crate) mod markdown_link;
 pub(crate) mod mention;
 mod mode;
 pub(crate) mod notion_strip;
+mod placeholder;
 mod render;
 
 pub use mode::EditorMode;
@@ -42,6 +52,7 @@ pub struct Editor<'a> {
     pub pending_mention_follow: Option<MentionFollow>,
     pub pending_mention_peek: Option<u32>,
     pub(super) pending_operator: Option<Operator>,
+    pub(super) placeholder_seed: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -68,7 +79,12 @@ impl<'a> Editor<'a> {
             pending_mention_follow: None,
             pending_mention_peek: None,
             pending_operator: None,
+            placeholder_seed: fresh_placeholder_seed(),
         }
+    }
+
+    pub(super) fn reroll_placeholder_seed(&mut self) {
+        self.placeholder_seed = fresh_placeholder_seed();
     }
 
     #[inline]
