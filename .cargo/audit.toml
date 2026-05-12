@@ -1,0 +1,10 @@
+[advisories]
+ignore = [
+    # rsa is reachable only through sqlx-mysql, which is an optional
+    # dep of sqlx-macros-core. We compile sqlx with default-features = false
+    # and only enable the sqlite backend, so sqlx-mysql (and therefore rsa)
+    # is never compiled into the binary. cargo audit reads Cargo.lock
+    # without feature-awareness and cannot tell.
+    # Verify with: cargo tree | grep -E "sqlx-mysql|rsa" (should be empty).
+    "RUSTSEC-2023-0071",
+]
