@@ -767,9 +767,31 @@ async fn handle_input<D: DataProvider>(
         },
         Event::Mouse(mouse) => {
             if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                if !app.state.full_screen && ui_components.is_on_divider(mouse.column, mouse.row) {
+                    ui_components.resizing_divider = true;
+                    return Ok(HandleInputReturnType::Handled);
+                }
                 ui_components
                     .handle_mouse_click(mouse.column, mouse.row, app)
                     .await
+            } else if matches!(mouse.kind, MouseEventKind::Drag(MouseButton::Left)) {
+                if ui_components.resizing_divider
+                    && ui_components.update_divider_from_drag(mouse.column, app)
+                    && let Err(err) = app.persist_state()
+                {
+                    log::error!("Persisting state after divider drag failed: {err}");
+                }
+                Ok(HandleInputReturnType::Handled)
+            } else if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+                if ui_components.resizing_divider {
+                    ui_components.resizing_divider = false;
+                    if let Err(err) = app.persist_state() {
+                        log::error!("Persisting state after divider release failed: {err}");
+                    }
+                    Ok(HandleInputReturnType::Handled)
+                } else {
+                    Ok(HandleInputReturnType::Ignore)
+                }
             } else if matches!(mouse.kind, MouseEventKind::ScrollUp) {
                 ui_components.handle_mouse_scroll(
                     mouse.column,
@@ -786,6 +808,15 @@ async fn handle_input<D: DataProvider>(
                     app,
                 );
                 Ok(HandleInputReturnType::Handled)
+            } else if matches!(mouse.kind, MouseEventKind::Moved) {
+                let on_divider =
+                    !app.state.full_screen && ui_components.is_on_divider(mouse.column, mouse.row);
+                if on_divider != ui_components.hover_on_divider {
+                    ui_components.hover_on_divider = on_divider;
+                    Ok(HandleInputReturnType::Handled)
+                } else {
+                    Ok(HandleInputReturnType::Ignore)
+                }
             } else {
                 Ok(HandleInputReturnType::Ignore)
             }

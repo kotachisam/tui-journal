@@ -86,4 +86,17 @@ where
             colored_tags,
         }
     }
+
+    pub fn set_entries_list_percentage(&mut self, pct: u16) -> bool {
+        let clamped = pct.clamp(ui::DIVIDER_MIN_PCT, ui::DIVIDER_MAX_PCT);
+        if clamped == self.state.entries_list_percentage {
+            return false;
+        }
+        self.state.entries_list_percentage = clamped;
+        true
+    }
+
+    pub fn entries_list_percentage(&self) -> u16 {
+        self.state.entries_list_percentage
+    }
 }

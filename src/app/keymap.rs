@@ -166,6 +166,14 @@ pub(crate) fn get_global_keymaps() -> Vec<Keymap> {
             ),
             UICommand::Redo,
         ),
+        Keymap::new(
+            Input::new(KeyCode::Char(','), KeyModifiers::CONTROL),
+            UICommand::ResizeDividerLeft,
+        ),
+        Keymap::new(
+            Input::new(KeyCode::Char('.'), KeyModifiers::CONTROL),
+            UICommand::ResizeDividerRight,
+        ),
     ]
 }
 

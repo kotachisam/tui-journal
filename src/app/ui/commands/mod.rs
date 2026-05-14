@@ -95,6 +95,10 @@ pub enum UICommand {
     EditorTextUndo,
     /// Editor text-area redo (Normal/Visual mode only; no-op in Insert).
     EditorTextRedo,
+    /// Shrinks the entries-list pane by one step (and widens the editor).
+    ResizeDividerLeft,
+    /// Widens the entries-list pane by one step (and shrinks the editor).
+    ResizeDividerRight,
 }
 
 #[derive(Debug, Clone)]
@@ -305,6 +309,14 @@ impl UICommand {
                 "Redo (editor)",
                 "Redo the last undone text edit in the editor (Normal or Visual mode)",
             ),
+            UICommand::ResizeDividerLeft => CommandInfo::new(
+                "Shrink entries pane",
+                "Shrink the entries list and widen the editor by one step",
+            ),
+            UICommand::ResizeDividerRight => CommandInfo::new(
+                "Widen entries pane",
+                "Widen the entries list and shrink the editor by one step",
+            ),
         }
     }
 
@@ -390,6 +402,12 @@ impl UICommand {
             UICommand::JumpToToday => exec_jump_to_today(ui_components, app),
             UICommand::EditorTextUndo => exec_editor_text_undo(ui_components, app),
             UICommand::EditorTextRedo => exec_editor_text_redo(ui_components, app),
+            UICommand::ResizeDividerLeft => {
+                exec_resize_divider(app, -(super::DIVIDER_KEY_STEP as i16))
+            }
+            UICommand::ResizeDividerRight => {
+                exec_resize_divider(app, super::DIVIDER_KEY_STEP as i16)
+            }
         }
     }
 
@@ -533,6 +551,9 @@ impl UICommand {
             }
             UICommand::EditorTextRedo => {
                 unreachable!("EditorTextRedo has no msgbox continuation")
+            }
+            UICommand::ResizeDividerLeft | UICommand::ResizeDividerRight => {
+                unreachable!("Divider resize commands have no msgbox continuation")
             }
         }
     }

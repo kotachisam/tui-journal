@@ -297,3 +297,14 @@ pub async fn continue_redo<D: DataProvider>(
 
     Ok(HandleInputReturnType::Handled)
 }
+
+pub fn exec_resize_divider<D: DataProvider>(app: &mut App<D>, delta: i16) -> CmdResult {
+    let current = app.entries_list_percentage() as i16;
+    let target = current.saturating_add(delta).max(0) as u16;
+    if app.set_entries_list_percentage(target)
+        && let Err(err) = app.persist_state()
+    {
+        log::error!("Persisting state after divider nudge failed: {err}");
+    }
+    Ok(HandleInputReturnType::Handled)
+}

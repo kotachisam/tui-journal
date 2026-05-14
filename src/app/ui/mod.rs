@@ -35,6 +35,7 @@ use anyhow::Result;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
 };
 
 mod backstack;
@@ -134,7 +135,15 @@ pub struct UIComponents<'a> {
     backstack: Backstack,
     last_entries_list_rect: Option<Rect>,
     last_editor_rect: Option<Rect>,
+    pub resizing_divider: bool,
+    pub hover_on_divider: bool,
+    last_split_rect: Option<Rect>,
 }
+
+pub const DIVIDER_MIN_PCT: u16 = 10;
+pub const DIVIDER_MAX_PCT: u16 = 60;
+pub const DIVIDER_KEY_STEP: u16 = 1;
+pub const DIVIDER_HIT_TOLERANCE: u16 = 1;
 
 impl UIComponents<'_> {
     pub fn new(styles: Styles) -> Self {
@@ -166,6 +175,9 @@ impl UIComponents<'_> {
             backstack: Backstack::default(),
             last_entries_list_rect: None,
             last_editor_rect: None,
+            resizing_divider: false,
+            hover_on_divider: false,
+            last_split_rect: None,
         }
     }
 
@@ -236,6 +248,38 @@ impl UIComponents<'_> {
         }
     }
 
+    pub fn is_on_divider(&self, column: u16, row: u16) -> bool {
+        let Some(list_rect) = self.last_entries_list_rect else {
+            return false;
+        };
+        let Some(split) = self.last_split_rect else {
+            return false;
+        };
+        if row < split.y || row >= split.y + split.height {
+            return false;
+        }
+        let divider_col = list_rect.x + list_rect.width.saturating_sub(1);
+        let lo = divider_col.saturating_sub(DIVIDER_HIT_TOLERANCE);
+        let hi = divider_col.saturating_add(DIVIDER_HIT_TOLERANCE);
+        column >= lo && column <= hi
+    }
+
+    pub fn update_divider_from_drag<D: DataProvider>(
+        &mut self,
+        column: u16,
+        app: &mut App<D>,
+    ) -> bool {
+        let Some(split) = self.last_split_rect else {
+            return false;
+        };
+        if split.width == 0 {
+            return false;
+        }
+        let local = column.saturating_sub(split.x);
+        let pct = ((local as u32 * 100) / split.width as u32) as u16;
+        app.set_entries_list_percentage(pct)
+    }
+
     pub async fn handle_mouse_click<D: DataProvider>(
         &mut self,
         column: u16,
@@ -280,6 +324,7 @@ impl UIComponents<'_> {
         render_footer(f, chunks[1], self, app);
         self.last_entries_list_rect = None;
         self.last_editor_rect = None;
+        self.last_split_rect = None;
         if app.state.full_screen {
             match self.active_control {
                 ControlType::EntriesList => {
@@ -304,12 +349,23 @@ impl UIComponents<'_> {
                 }
             }
         } else {
+            let list_pct = app
+                .state
+                .entries_list_percentage
+                .clamp(DIVIDER_MIN_PCT, DIVIDER_MAX_PCT);
             let entries_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(30), Constraint::Percentage(70)].as_ref())
+                .constraints(
+                    [
+                        Constraint::Percentage(list_pct),
+                        Constraint::Percentage(100 - list_pct),
+                    ]
+                    .as_ref(),
+                )
                 .split(chunks[0]);
             self.last_entries_list_rect = Some(entries_chunks[0]);
             self.last_editor_rect = Some(entries_chunks[1]);
+            self.last_split_rect = Some(chunks[0]);
             self.entries_list.render_widget(
                 f,
                 entries_chunks[0],
@@ -324,9 +380,31 @@ impl UIComponents<'_> {
                 app.last_search_query.as_deref(),
                 app,
             );
+            self.paint_divider_highlight(f, entries_chunks[0], entries_chunks[1]);
         }
 
         self.render_popup(f, app);
+    }
+
+    fn paint_divider_highlight(&self, f: &mut Frame, list_rect: Rect, editor_rect: Rect) {
+        if !(self.hover_on_divider || self.resizing_divider) {
+            return;
+        }
+        let style = Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD);
+        let buf = f.buffer_mut();
+        let list_right = list_rect.x + list_rect.width.saturating_sub(1);
+        let editor_left = editor_rect.x;
+        let y_start = list_rect.y;
+        let y_end = list_rect.y + list_rect.height;
+        for y in y_start..y_end {
+            for col in [list_right, editor_left] {
+                if let Some(cell) = buf.cell_mut((col, y)) {
+                    cell.set_style(style);
+                }
+            }
+        }
     }
 
     pub fn render_popup<D: DataProvider>(&mut self, f: &mut Frame, app: &App<D>) {

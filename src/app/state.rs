@@ -13,12 +13,20 @@ fn default_view_category() -> String {
     backend::DEFAULT_CATEGORY.to_owned()
 }
 
+pub const DEFAULT_ENTRIES_LIST_PERCENTAGE: u16 = 30;
+
+fn default_entries_list_percentage() -> u16 {
+    DEFAULT_ENTRIES_LIST_PERCENTAGE
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AppState {
     pub sorter: Sorter,
     pub full_screen: bool,
     #[serde(default = "default_view_category")]
     pub last_view_category: String,
+    #[serde(default = "default_entries_list_percentage")]
+    pub entries_list_percentage: u16,
 }
 
 impl Default for AppState {
@@ -27,6 +35,7 @@ impl Default for AppState {
             sorter: Sorter::default(),
             full_screen: false,
             last_view_category: default_view_category(),
+            entries_list_percentage: DEFAULT_ENTRIES_LIST_PERCENTAGE,
         }
     }
 }
@@ -210,6 +219,7 @@ mod tests {
             sorter,
             full_screen: true,
             last_view_category: default_view_category(),
+            entries_list_percentage: DEFAULT_ENTRIES_LIST_PERCENTAGE,
         };
 
         state.save(&settings).unwrap();
@@ -218,6 +228,59 @@ mod tests {
         assert!(loaded.full_screen);
         assert_eq!(loaded.sorter.get_criteria(), &[SortCriteria::Title]);
         assert!(matches!(loaded.sorter.order, SortOrder::Ascending));
+    }
+
+    #[test]
+    fn missing_entries_list_percentage_defaults() {
+        let dir = tempfile::Builder::new()
+            .prefix("state-legacy")
+            .tempdir()
+            .unwrap();
+        let settings = Settings {
+            app_state_dir: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        AppState::default().save(&settings).unwrap();
+        let state_path = dir.path().join(STATE_FILE_NAME);
+        let json: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&state_path).unwrap()).unwrap();
+        let mut obj = json.as_object().cloned().unwrap();
+        obj.remove("entries_list_percentage");
+        std::fs::write(
+            &state_path,
+            serde_json::to_string(&serde_json::Value::Object(obj)).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = AppState::load(&settings).unwrap();
+        assert_eq!(
+            loaded.entries_list_percentage,
+            DEFAULT_ENTRIES_LIST_PERCENTAGE
+        );
+    }
+
+    #[test]
+    fn entries_list_percentage_round_trips() {
+        let dir = tempfile::Builder::new()
+            .prefix("state-pct")
+            .tempdir()
+            .unwrap();
+        let settings = Settings {
+            app_state_dir: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        let state = AppState {
+            sorter: Sorter::default(),
+            full_screen: false,
+            last_view_category: default_view_category(),
+            entries_list_percentage: 45,
+        };
+        state.save(&settings).unwrap();
+
+        let loaded = AppState::load(&settings).unwrap();
+        assert_eq!(loaded.entries_list_percentage, 45);
     }
 
     #[test]
