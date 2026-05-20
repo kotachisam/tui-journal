@@ -1,12 +1,9 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::hash::{BuildHasher, RandomState};
 
 use tui_textarea::TextArea;
 
 fn fresh_placeholder_seed() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    RandomState::new().hash_one(())
 }
 
 mod clipboard;
