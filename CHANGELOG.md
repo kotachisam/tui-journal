@@ -8,6 +8,16 @@ Format loosely based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Upstream
+
+- Merged `upstream/main` at v0.17.0 (2026-08-05). Notable upstream changes:
+  external-editor temp files now prefer `XDG_RUNTIME_DIR` when it is set to an
+  absolute path (no-op on macOS, where the variable is normally unset),
+  explicit minimum dependency versions in `Cargo.toml`, and Linux ARM64
+  release binaries. The fork keeps its hardened `sqlx` dependency line
+  (`default-features = false`) rather than upstream's, which would reinstate
+  the transitive `rsa` advisory.
+
 ### Added
 
 - **Bidirectional Notion sync** (fork-only). Three CLI subcommands:
