@@ -249,7 +249,7 @@ impl<'a> EntryPopup<'a> {
             self.active_txt == ActiveText::Date,
             &self.date_err_msg,
             "Date",
-            None,
+            Some("Date | <Ctrl-P/N> or <Opt-Up/Down>: adjust day"),
             &field_styles,
         );
         render_field(
@@ -347,6 +347,19 @@ impl<'a> EntryPopup<'a> {
         }
     }
 
+    fn step_date(&mut self, delta_days: i64) {
+        let Some(stepped) = self
+            .date_format
+            .step(self.date_txt.lines()[0].as_str(), delta_days)
+        else {
+            return;
+        };
+
+        self.date_txt = TextArea::new(vec![stepped]);
+        self.date_txt.move_cursor(CursorMove::End);
+        self.validate_date();
+    }
+
     fn validate_priority(&mut self) {
         let prio_text = self.priority_txt.lines().first().unwrap();
         if !prio_text.is_empty() && prio_text.parse::<u32>().is_err() {
@@ -384,6 +397,7 @@ impl<'a> EntryPopup<'a> {
         }
 
         let has_ctrl = input.modifiers.contains(KeyModifiers::CONTROL);
+        let has_alt = input.modifiers.contains(KeyModifiers::ALT);
 
         // Ctrl-Backspace, Alt-Backspace (= Option-Backspace on macOS), or
         // Ctrl-W in the tags field deletes the whole tag at the cursor
@@ -462,6 +476,24 @@ impl<'a> EntryPopup<'a> {
             KeyCode::Esc => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Char('c') if has_ctrl => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Enter => self.handle_confirm(app).await,
+            KeyCode::Up if (has_ctrl || has_alt) && matches!(self.active_txt, ActiveText::Date) => {
+                self.step_date(1);
+                Ok(EntryPopupInputReturn::KeepPopup)
+            }
+            KeyCode::Down
+                if (has_ctrl || has_alt) && matches!(self.active_txt, ActiveText::Date) =>
+            {
+                self.step_date(-1);
+                Ok(EntryPopupInputReturn::KeepPopup)
+            }
+            KeyCode::Char('p') if has_ctrl && matches!(self.active_txt, ActiveText::Date) => {
+                self.step_date(1);
+                Ok(EntryPopupInputReturn::KeepPopup)
+            }
+            KeyCode::Char('n') if has_ctrl && matches!(self.active_txt, ActiveText::Date) => {
+                self.step_date(-1);
+                Ok(EntryPopupInputReturn::KeepPopup)
+            }
             KeyCode::Tab | KeyCode::Down => {
                 self.active_txt = match self.active_txt {
                     ActiveText::Title => ActiveText::Date,
@@ -472,7 +504,7 @@ impl<'a> EntryPopup<'a> {
                 };
                 Ok(EntryPopupInputReturn::KeepPopup)
             }
-            KeyCode::Up => {
+            KeyCode::Up | KeyCode::BackTab => {
                 self.active_txt = match self.active_txt {
                     ActiveText::Title => ActiveText::Tags,
                     ActiveText::Date => ActiveText::Title,
