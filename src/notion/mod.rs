@@ -8,7 +8,7 @@ use crate::settings::notion::{NotionSettings, SyncMode, read_database_id_from_en
 pub use lib::{BootstrapOutcome, PullOutcome, PushOutcome, SyncProgress, SyncStage};
 
 pub async fn bootstrap_from_notion<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
     force: bool,
     progress: Option<UnboundedSender<SyncProgress>>,
@@ -36,7 +36,7 @@ pub async fn bootstrap_from_notion<D: DataProvider>(
 }
 
 pub async fn pull_from_notion<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
     progress: Option<UnboundedSender<SyncProgress>>,
 ) -> anyhow::Result<PullOutcome> {
@@ -71,7 +71,7 @@ pub async fn pull_from_notion<D: DataProvider>(
 }
 
 pub async fn push_to_notion<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
     progress: Option<UnboundedSender<SyncProgress>>,
 ) -> anyhow::Result<PushOutcome> {

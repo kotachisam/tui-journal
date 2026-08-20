@@ -12,6 +12,8 @@ use backend::DataProvider;
 use backend::JsonDataProvide;
 #[cfg(feature = "sqlite")]
 use backend::SqliteDataProvide;
+#[cfg(feature = "vjournal")]
+use backend::VjournalDataProvide;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Direction, Layout};
@@ -94,8 +96,8 @@ pub async fn run_headless(settings: Settings, cmd: PendingCliCommand) -> Result<
                 crate::settings::json_backend::get_default_json_path()?
             };
             let data_provider = JsonDataProvide::new(path);
-            let app = App::new(data_provider, settings);
-            exec_headless_cmd(&app, cmd).await
+            let mut app = App::new(data_provider, settings);
+            exec_headless_cmd(&mut app, cmd).await
         }
         #[cfg(not(feature = "json"))]
         BackendType::Json => {
@@ -111,8 +113,8 @@ pub async fn run_headless(settings: Settings, cmd: PendingCliCommand) -> Result<
                 crate::settings::sqlite_backend::get_default_sqlite_path()?
             };
             let data_provider = SqliteDataProvide::from_file(path).await?;
-            let app = App::new(data_provider, settings);
-            exec_headless_cmd(&app, cmd).await
+            let mut app = App::new(data_provider, settings);
+            exec_headless_cmd(&mut app, cmd).await
         }
         #[cfg(not(feature = "sqlite"))]
         BackendType::Sqlite => {
@@ -120,10 +122,18 @@ pub async fn run_headless(settings: Settings, cmd: PendingCliCommand) -> Result<
                 "Feature 'sqlite' is not installed. Please check your configs and set your backend to an installed feature, or reinstall the program with 'sqlite' feature"
             )
         }
+        BackendType::Vjournal => {
+            anyhow::bail!(
+                "The Vjournal backend doesn't carry the category, revision and Notion/Obsidian sync fields this fork stores per entry, so the headless commands would silently drop them. Set your backend to Json or Sqlite to use them"
+            )
+        }
     }
 }
 
-async fn exec_headless_cmd<D: DataProvider>(app: &App<D>, cmd: PendingCliCommand) -> Result<()> {
+async fn exec_headless_cmd<D: DataProvider>(
+    app: &mut App<D>,
+    cmd: PendingCliCommand,
+) -> Result<()> {
     match cmd {
         PendingCliCommand::ExportActivityLog => {
             let entries = app.get_activity_log().await?;
@@ -144,10 +154,11 @@ async fn exec_headless_cmd<D: DataProvider>(app: &App<D>, cmd: PendingCliCommand
             println!("Exported {written} entries to {}", dir.display());
         }
         PendingCliCommand::ObsidianSync { force } => {
-            run_obsidian_sync_headless(&app.data_provide, &app.settings.obsidian, force).await?;
+            run_obsidian_sync_headless(&mut app.data_provide, &app.settings.obsidian, force)
+                .await?;
         }
         PendingCliCommand::ObsidianStatus => {
-            print_obsidian_status(&app.data_provide, &app.settings.obsidian).await?;
+            print_obsidian_status(&mut app.data_provide, &app.settings.obsidian).await?;
         }
         PendingCliCommand::SyncAll { force_obsidian } => {
             run_sync_all_headless(app, force_obsidian).await?;
@@ -158,7 +169,7 @@ async fn exec_headless_cmd<D: DataProvider>(app: &App<D>, cmd: PendingCliCommand
 }
 
 async fn run_obsidian_sync_headless<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &crate::settings::obsidian::ObsidianSettings,
     force: bool,
 ) -> Result<()> {
@@ -184,7 +195,7 @@ async fn run_obsidian_sync_headless<D: DataProvider>(
 }
 
 async fn print_obsidian_status<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &crate::settings::obsidian::ObsidianSettings,
 ) -> Result<()> {
     if !settings.is_configured() {
@@ -225,20 +236,23 @@ async fn print_obsidian_status<D: DataProvider>(
     Ok(())
 }
 
-async fn run_sync_all_headless<D: DataProvider>(app: &App<D>, force_obsidian: bool) -> Result<()> {
+async fn run_sync_all_headless<D: DataProvider>(
+    app: &mut App<D>,
+    force_obsidian: bool,
+) -> Result<()> {
     println!("Running notion sync ...");
     let notion_settings = app.settings.notion.clone();
     use crate::settings::notion::SyncMode;
     let notion_result = match notion_settings.sync_mode {
         SyncMode::Pull | SyncMode::TwoWay => {
-            crate::notion::pull_from_notion(&app.data_provide, &notion_settings, None).await
+            crate::notion::pull_from_notion(&mut app.data_provide, &notion_settings, None).await
                 .map(|o| format!(
                     "notion pull: inserted={}, updated={}, unchanged={}, local_wins={}, errored={}",
                     o.inserted, o.updated, o.unchanged, o.local_wins, o.errored
                 ))
         }
         SyncMode::Push => {
-            crate::notion::push_to_notion(&app.data_provide, &notion_settings, None).await
+            crate::notion::push_to_notion(&mut app.data_provide, &notion_settings, None).await
                 .map(|o| format!(
                     "notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
                     o.created, o.updated, o.archived, o.skipped_unchanged, o.skipped_conflict, o.errored
@@ -261,7 +275,7 @@ async fn run_sync_all_headless<D: DataProvider>(app: &App<D>, force_obsidian: bo
         println!("Running obsidian sync ...");
         let vault = app.settings.obsidian.vault_dir.as_ref().unwrap().display();
         match crate::obsidian::push_to_obsidian(
-            &app.data_provide,
+            &mut app.data_provide,
             &app.settings.obsidian,
             force_obsidian,
         )
@@ -289,7 +303,7 @@ async fn run_sync_all_headless<D: DataProvider>(app: &App<D>, force_obsidian: bo
 }
 
 async fn fire_obsidian_after_notion<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &crate::settings::obsidian::ObsidianSettings,
 ) {
     if !settings.enable_on_notion_sync || !settings.is_configured() {
@@ -378,6 +392,22 @@ pub async fn run<B: Backend>(
                 "Feature 'sqlite' is not installed. Please check your configs and set your backend to an installed feature, or reinstall the program with 'sqlite' feature"
             )
         }
+        #[cfg(feature = "vjournal")]
+        BackendType::Vjournal => {
+            let directory = if let Some(dir) = &settings.vjournal_backend.directory {
+                dir.clone()
+            } else {
+                crate::settings::vjournal_backend::get_default_vjournal_path()?
+            };
+            let data_provider = VjournalDataProvide::new(directory);
+            run_intern(terminal, data_provider, settings, styles, pending_cmd).await
+        }
+        #[cfg(not(feature = "vjournal"))]
+        BackendType::Vjournal => {
+            anyhow::bail!(
+                "Feature 'vjournal' is not installed. Please check your configs and set your backend to an installed feature, or reinstall the program with 'vjournal' feature"
+            )
+        }
     }
 }
 
@@ -399,7 +429,7 @@ where
             &cmd,
             PendingCliCommand::ExportToDirectory { .. } | PendingCliCommand::ExportActivityLog
         );
-        if let Err(err) = exec_pending_cmd(terminal, &app, cmd).await {
+        if let Err(err) = exec_pending_cmd(terminal, &mut app, cmd).await {
             ui_components.show_err_msg(err.to_string());
         }
         if exit_after {
@@ -466,7 +496,7 @@ where
 
         if app.should_push_on_exit {
             app.should_push_on_exit = false;
-            match run_notion_push(terminal, &app.data_provide, &app.settings.notion).await {
+            match run_notion_push(terminal, &mut app.data_provide, &app.settings.notion).await {
                 Ok(outcome) => {
                     log::info!(
                         "Notion push: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
@@ -477,7 +507,7 @@ where
                         outcome.skipped_conflict,
                         outcome.errored,
                     );
-                    fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
+                    fire_obsidian_after_notion(&mut app.data_provide, &app.settings.obsidian).await;
                     if let Err(err) = app.load_entries().await {
                         log::warn!("Failed to refresh entries after push: {err}");
                     }
@@ -508,7 +538,7 @@ where
 
 async fn exec_pending_cmd<B: Backend, D: DataProvider>(
     terminal: &mut Terminal<B>,
-    app: &App<D>,
+    app: &mut App<D>,
     pending_cmd: PendingCliCommand,
 ) -> anyhow::Result<()> {
     match pending_cmd {
@@ -527,7 +557,8 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 notion_settings.database_id = Some(id);
             }
             let outcome =
-                run_notion_bootstrap(terminal, &app.data_provide, &notion_settings, force).await?;
+                run_notion_bootstrap(terminal, &mut app.data_provide, &notion_settings, force)
+                    .await?;
             log::info!(
                 "Notion bootstrap finished: inserted={}, skipped={}",
                 outcome.inserted,
@@ -539,7 +570,8 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             if let Some(id) = database_id {
                 notion_settings.database_id = Some(id);
             }
-            let outcome = run_notion_pull(terminal, &app.data_provide, &notion_settings).await?;
+            let outcome =
+                run_notion_pull(terminal, &mut app.data_provide, &notion_settings).await?;
             log::info!(
                 "Notion pull finished: inserted={}, updated={}, unchanged={}, local_wins={}, errored={}",
                 outcome.inserted,
@@ -548,7 +580,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.local_wins,
                 outcome.errored
             );
-            fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
+            fire_obsidian_after_notion(&mut app.data_provide, &app.settings.obsidian).await;
         }
         PendingCliCommand::ExportActivityLog => {
             let entries = app.get_activity_log().await?;
@@ -572,7 +604,8 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
             if let Some(id) = database_id {
                 notion_settings.database_id = Some(id);
             }
-            let outcome = run_notion_push(terminal, &app.data_provide, &notion_settings).await?;
+            let outcome =
+                run_notion_push(terminal, &mut app.data_provide, &notion_settings).await?;
             log::info!(
                 "Notion push finished: created={}, updated={}, archived={}, skipped_unchanged={}, skipped_conflict={}, errored={}",
                 outcome.created,
@@ -582,7 +615,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
                 outcome.skipped_conflict,
                 outcome.errored
             );
-            fire_obsidian_after_notion(&app.data_provide, &app.settings.obsidian).await;
+            fire_obsidian_after_notion(&mut app.data_provide, &app.settings.obsidian).await;
         }
         PendingCliCommand::ObsidianSync { .. }
         | PendingCliCommand::ObsidianStatus
@@ -596,7 +629,7 @@ async fn exec_pending_cmd<B: Backend, D: DataProvider>(
 
 async fn run_notion_bootstrap<B: Backend, D: DataProvider>(
     terminal: &mut Terminal<B>,
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
     force: bool,
 ) -> anyhow::Result<crate::notion::BootstrapOutcome> {
@@ -628,7 +661,7 @@ async fn run_notion_bootstrap<B: Backend, D: DataProvider>(
 
 async fn run_notion_pull<B: Backend, D: DataProvider>(
     terminal: &mut Terminal<B>,
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
 ) -> anyhow::Result<crate::notion::PullOutcome> {
     let (tx, mut rx) = unbounded_channel::<SyncProgress>();
@@ -659,7 +692,7 @@ async fn run_notion_pull<B: Backend, D: DataProvider>(
 
 async fn run_notion_push<B: Backend, D: DataProvider>(
     terminal: &mut Terminal<B>,
-    provider: &D,
+    provider: &mut D,
     settings: &NotionSettings,
 ) -> anyhow::Result<crate::notion::PushOutcome> {
     let (tx, mut rx) = unbounded_channel::<SyncProgress>();

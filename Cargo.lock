@@ -3482,6 +3482,8 @@ dependencies = [
  "toml 1.1.2+spec-1.1.0",
  "tui-journal-publisher",
  "tui-textarea",
+ "uuid",
+ "vobject",
 ]
 
 [[package]]
@@ -3628,6 +3630,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
+name = "uuid"
+version = "1.24.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2cefc03fd367c0c6d4305de1b312cf00248c4114f4a0418ce6a6af769e3b0bd9"
+dependencies = [
+ "getrandom 0.4.2",
+ "js-sys",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "vcpkg"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3638,6 +3651,15 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vobject"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7bc9116aeb7c7739420de4af1151af696559f0b96a4ebde76c8407af76002847"
+dependencies = [
+ "thiserror 1.0.69",
+]
 
 [[package]]
 name = "walkdir"

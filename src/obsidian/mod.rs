@@ -18,7 +18,7 @@ use crate::app::persistence::frontmatter_from;
 use crate::settings::obsidian::ObsidianSettings;
 
 pub async fn push_to_obsidian<D: DataProvider>(
-    provider: &D,
+    provider: &mut D,
     settings: &ObsidianSettings,
     force: bool,
 ) -> Result<SyncOutcome> {
@@ -70,7 +70,7 @@ fn entry_to_publishable(entry: &Entry) -> engine::PublishableEntry {
     }
 }
 
-async fn apply_outcome<D: DataProvider>(provider: &D, outcome: &SyncOutcome) -> Result<()> {
+async fn apply_outcome<D: DataProvider>(provider: &mut D, outcome: &SyncOutcome) -> Result<()> {
     for action in &outcome.actions {
         match action {
             EntryAction::Wrote {

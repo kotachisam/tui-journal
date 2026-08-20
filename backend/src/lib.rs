@@ -12,6 +12,11 @@ mod sqlite;
 #[cfg(feature = "sqlite")]
 pub use sqlite::SqliteDataProvide;
 
+#[cfg(feature = "vjournal")]
+mod vjournal;
+#[cfg(feature = "vjournal")]
+pub use vjournal::VjournalDataProvide;
+
 pub const TRANSFER_DATA_VERSION: u16 = 100;
 
 pub mod activity_actions {
@@ -32,14 +37,14 @@ pub enum ModifyEntryError {
 // The warning can be suppressed since this will be used with the code base of this app only
 #[allow(async_fn_in_trait)]
 pub trait DataProvider {
-    async fn load_all_entries(&self) -> anyhow::Result<Vec<Entry>>;
-    async fn add_entry(&self, entry: EntryDraft) -> Result<Entry, ModifyEntryError>;
+    async fn load_all_entries(&mut self) -> anyhow::Result<Vec<Entry>>;
+    async fn add_entry(&mut self, entry: EntryDraft) -> Result<Entry, ModifyEntryError>;
     /// Restores an entry with its existing id. Implementations must not overwrite another entry.
-    async fn restore_entry(&self, entry: Entry) -> Result<Entry, ModifyEntryError>;
-    async fn remove_entry(&self, entry_id: u32) -> anyhow::Result<()>;
-    async fn update_entry(&self, entry: Entry) -> Result<Entry, ModifyEntryError>;
-    async fn get_export_object(&self, entries_ids: &[u32]) -> anyhow::Result<EntriesDTO>;
-    async fn import_entries(&self, entries_dto: EntriesDTO) -> anyhow::Result<()> {
+    async fn restore_entry(&mut self, entry: Entry) -> Result<Entry, ModifyEntryError>;
+    async fn remove_entry(&mut self, entry_id: u32) -> anyhow::Result<()>;
+    async fn update_entry(&mut self, entry: Entry) -> Result<Entry, ModifyEntryError>;
+    async fn get_export_object(&mut self, entries_ids: &[u32]) -> anyhow::Result<EntriesDTO>;
+    async fn import_entries(&mut self, entries_dto: EntriesDTO) -> anyhow::Result<()> {
         debug_assert_eq!(
             TRANSFER_DATA_VERSION, entries_dto.version,
             "Version mismatches check if there is a need to do a converting to the data"
@@ -52,7 +57,7 @@ pub trait DataProvider {
         Ok(())
     }
     /// Assigns priority to all entries that don't have a priority assigned to
-    async fn assign_priority_to_entries(&self, priority: u32) -> anyhow::Result<()>;
+    async fn assign_priority_to_entries(&mut self, priority: u32) -> anyhow::Result<()>;
 
     /// Returns prior snapshots of the given entry, newest first. Backends
     /// that don't support revisioning return an empty vec.
@@ -83,18 +88,24 @@ pub trait DataProvider {
     /// Stores the content hash (for skip-unchanged), the filename, and the
     /// vault-relative directory the file was placed in so a later filename
     /// or category change can unlink the old file.
+    /// Backends that don't carry Obsidian sync columns keep the default no-op,
+    /// which makes the next push treat the entry as unsynced rather than fail.
     async fn set_obsidian_sync_state(
-        &self,
-        entry_id: u32,
-        synced_at: DateTime<Utc>,
-        content_hash: &str,
-        filename: &str,
-        relative_dir: &str,
-    ) -> anyhow::Result<()>;
+        &mut self,
+        _entry_id: u32,
+        _synced_at: DateTime<Utc>,
+        _content_hash: &str,
+        _filename: &str,
+        _relative_dir: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
 
     /// Clears the Obsidian sync state for an entry — used after the file is
     /// unlinked (e.g. entry deleted in tjournal, file removed from vault).
-    async fn clear_obsidian_sync_state(&self, entry_id: u32) -> anyhow::Result<()>;
+    async fn clear_obsidian_sync_state(&mut self, _entry_id: u32) -> anyhow::Result<()> {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -309,8 +320,6 @@ impl EntriesDTO {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
-
     use chrono::TimeZone;
 
     use super::*;
@@ -333,28 +342,27 @@ mod tests {
     }
 
     struct ImportStubProvider {
-        added_entries: Mutex<Vec<EntryDraft>>,
+        added_entries: Vec<EntryDraft>,
         fail_on_call: Option<usize>,
     }
 
     impl ImportStubProvider {
         fn new(fail_on_call: Option<usize>) -> Self {
             Self {
-                added_entries: Mutex::new(Vec::new()),
+                added_entries: Vec::new(),
                 fail_on_call,
             }
         }
     }
 
     impl DataProvider for ImportStubProvider {
-        async fn load_all_entries(&self) -> anyhow::Result<Vec<Entry>> {
+        async fn load_all_entries(&mut self) -> anyhow::Result<Vec<Entry>> {
             unreachable!("not used in these tests");
         }
 
-        async fn add_entry(&self, entry: EntryDraft) -> Result<Entry, ModifyEntryError> {
-            let mut added_entries = self.added_entries.lock().unwrap();
-            let call_idx = added_entries.len();
-            added_entries.push(entry.clone());
+        async fn add_entry(&mut self, entry: EntryDraft) -> Result<Entry, ModifyEntryError> {
+            let call_idx = self.added_entries.len();
+            self.added_entries.push(entry.clone());
 
             if self.fail_on_call == Some(call_idx) {
                 return Err(ModifyEntryError::ValidationError(format!(
@@ -365,28 +373,28 @@ mod tests {
             Ok(Entry::from_draft(call_idx as u32, entry))
         }
 
-        async fn restore_entry(&self, _entry: Entry) -> Result<Entry, ModifyEntryError> {
+        async fn restore_entry(&mut self, _entry: Entry) -> Result<Entry, ModifyEntryError> {
             unreachable!("not used in these tests");
         }
 
-        async fn remove_entry(&self, _entry_id: u32) -> anyhow::Result<()> {
+        async fn remove_entry(&mut self, _entry_id: u32) -> anyhow::Result<()> {
             unreachable!("not used in these tests");
         }
 
-        async fn update_entry(&self, _entry: Entry) -> Result<Entry, ModifyEntryError> {
+        async fn update_entry(&mut self, _entry: Entry) -> Result<Entry, ModifyEntryError> {
             unreachable!("not used in these tests");
         }
 
-        async fn get_export_object(&self, _entries_ids: &[u32]) -> anyhow::Result<EntriesDTO> {
+        async fn get_export_object(&mut self, _entries_ids: &[u32]) -> anyhow::Result<EntriesDTO> {
             unreachable!("not used in these tests");
         }
 
-        async fn assign_priority_to_entries(&self, _priority: u32) -> anyhow::Result<()> {
+        async fn assign_priority_to_entries(&mut self, _priority: u32) -> anyhow::Result<()> {
             unreachable!("not used in these tests");
         }
 
         async fn set_obsidian_sync_state(
-            &self,
+            &mut self,
             _entry_id: u32,
             _synced_at: DateTime<Utc>,
             _content_hash: &str,
@@ -396,7 +404,7 @@ mod tests {
             unreachable!("not used in these tests");
         }
 
-        async fn clear_obsidian_sync_state(&self, _entry_id: u32) -> anyhow::Result<()> {
+        async fn clear_obsidian_sync_state(&mut self, _entry_id: u32) -> anyhow::Result<()> {
             unreachable!("not used in these tests");
         }
     }
@@ -458,7 +466,7 @@ mod tests {
 
     #[tokio::test]
     async fn import_entries_keeps_order() {
-        let provider = ImportStubProvider::new(None);
+        let mut provider = ImportStubProvider::new(None);
         let entries = vec![
             sample_draft(),
             EntryDraft::new(
@@ -474,13 +482,12 @@ mod tests {
             .await
             .unwrap();
 
-        let added_entries = provider.added_entries.lock().unwrap().clone();
-        assert_eq!(added_entries, entries);
+        assert_eq!(provider.added_entries, entries);
     }
 
     #[tokio::test]
     async fn import_entries_stops_on_error() {
-        let provider = ImportStubProvider::new(Some(1));
+        let mut provider = ImportStubProvider::new(Some(1));
         let entries = vec![
             sample_draft(),
             EntryDraft::new(
@@ -505,7 +512,6 @@ mod tests {
         assert_eq!(err.to_string(), "fail on 1");
 
         // The stub records the draft before failing, so the third entry proves import stopped.
-        let added_entries = provider.added_entries.lock().unwrap().clone();
-        assert_eq!(added_entries, entries[..2].to_vec());
+        assert_eq!(provider.added_entries, entries[..2]);
     }
 }

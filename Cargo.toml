@@ -27,6 +27,8 @@ textwrap = "0.16"
 thiserror = "2.0"
 toml = "1.1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "chrono", "macros", "migrate"], optional = true }
+vobject = { version = "0.9", optional = true }
+uuid = { version = "1", features = ["v4"], optional = true }
 futures-util = { version = "0.3", default-features = false }
 aho-corasick = "1.1"
 markdown-tui = "0.1.3"
@@ -46,6 +48,7 @@ dotenvy = "0.15"
 default = ["json", "sqlite"]
 json =[]
 sqlite = ["dep:sqlx"]
+vjournal = ["dep:vobject", "dep:uuid"]
 
 [[bin]]
 name = "tjournal"

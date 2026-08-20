@@ -292,21 +292,28 @@ where
 
         assert!(self.current_entry_id.is_some());
 
-        let entry = self
-            .get_entry_mut(entry_id, EntryEditPart::Attributes, history_target)
+        let mut candidate = self
+            .entries
+            .iter()
+            .find(|entry| entry.id == entry_id)
+            .cloned()
             .expect("Entry not found for id when updating attributes");
 
-        entry.title = title;
-        entry.date = date;
-        entry.tags = tags;
-        entry.priority = priority;
-        entry.category = category;
-        entry.updated_at = Some(Utc::now());
+        candidate.title = title;
+        candidate.date = date;
+        candidate.tags = tags;
+        candidate.priority = priority;
+        candidate.category = category;
+        candidate.updated_at = Some(Utc::now());
 
-        let clone = entry.clone();
-        let log_title = clone.title.clone();
+        let log_title = candidate.title.clone();
 
-        self.data_provide.update_entry(clone).await?;
+        let persisted_entry = self.data_provide.update_entry(candidate).await?;
+
+        let entry = self
+            .get_entry_mut(entry_id, EntryEditPart::Attributes, history_target)
+            .expect("Updated entry must remain in the entries list");
+        *entry = persisted_entry;
 
         self.log_activity_best_effort(
             activity_actions::ENTRY_UPDATED,

@@ -21,6 +21,8 @@ pub use self::date_format::DateFormat;
 use self::json_backend::{JsonBackend, get_default_json_path};
 #[cfg(feature = "sqlite")]
 use self::sqlite_backend::{SqliteBackend, get_default_sqlite_path};
+#[cfg(feature = "vjournal")]
+use self::vjournal_backend::{VjournalBackend, get_default_vjournal_path};
 use self::{
     export::ExportSettings, external_editor::ExternalEditor, notion::NotionSettings,
     obsidian::ObsidianSettings,
@@ -32,6 +34,8 @@ pub mod notion;
 pub mod obsidian;
 #[cfg(feature = "sqlite")]
 pub mod sqlite_backend;
+#[cfg(feature = "vjournal")]
+pub mod vjournal_backend;
 
 mod date_format;
 mod export;
@@ -53,6 +57,9 @@ pub struct Settings {
     #[cfg(feature = "sqlite")]
     #[serde(default)]
     pub sqlite_backend: SqliteBackend,
+    #[cfg(feature = "vjournal")]
+    #[serde(default)]
+    pub vjournal_backend: VjournalBackend,
     #[serde(default)]
     pub default_journal_priority: Option<u32>,
     #[serde(default)]
@@ -98,6 +105,8 @@ impl Default for Settings {
             json_backend: Default::default(),
             #[cfg(feature = "sqlite")]
             sqlite_backend: Default::default(),
+            #[cfg(feature = "vjournal")]
+            vjournal_backend: Default::default(),
             default_journal_priority: Default::default(),
             scroll_per_page: Default::default(),
             sync_os_clipboard: Default::default(),
@@ -160,6 +169,11 @@ pub enum BackendType {
     Json,
     #[cfg_attr(feature = "sqlite", default)]
     Sqlite,
+    #[cfg_attr(
+        all(feature = "vjournal", not(feature = "json"), not(feature = "sqlite")),
+        default
+    )]
+    Vjournal,
 }
 
 const fn default_history_limit() -> usize {
@@ -220,11 +234,17 @@ impl Settings {
 
     pub fn complete_missing_options(&mut self) -> anyhow::Result<()> {
         // This check is to ensure that all added fields to settings struct are considered here
-        #[cfg(all(debug_assertions, feature = "sqlite", feature = "json"))]
+        #[cfg(all(
+            debug_assertions,
+            feature = "sqlite",
+            feature = "json",
+            feature = "vjournal"
+        ))]
         let Settings {
             backend_type: _,
             json_backend: _,
             sqlite_backend: _,
+            vjournal_backend: _,
             export: _,
             external_editor: _,
             default_journal_priority: _,
@@ -254,6 +274,11 @@ impl Settings {
         #[cfg(feature = "sqlite")]
         if self.sqlite_backend.file_path.is_none() {
             self.sqlite_backend.file_path = Some(get_default_sqlite_path()?)
+        }
+
+        #[cfg(feature = "vjournal")]
+        if self.vjournal_backend.directory.is_none() {
+            self.vjournal_backend.directory = Some(get_default_vjournal_path()?)
         }
 
         if self.scroll_per_page.is_none() {
@@ -459,8 +484,12 @@ temp_file_extension = "md"
     #[test]
     fn complete_missing_preserves_values() {
         let app_state_dir = PathBuf::from("/tmp/app-state");
+        #[cfg(feature = "json")]
         let json_path = PathBuf::from("/tmp/entries.json");
+        #[cfg(feature = "sqlite")]
         let sqlite_path = PathBuf::from("/tmp/entries.db");
+        #[cfg(feature = "vjournal")]
+        let vjournal_dir = PathBuf::from("/tmp/journal");
         let mut settings = Settings {
             backend_type: Some(BackendType::Json),
             scroll_per_page: Some(9),
@@ -472,6 +501,10 @@ temp_file_extension = "md"
             #[cfg(feature = "sqlite")]
             sqlite_backend: SqliteBackend {
                 file_path: Some(sqlite_path.clone()),
+            },
+            #[cfg(feature = "vjournal")]
+            vjournal_backend: VjournalBackend {
+                directory: Some(vjournal_dir.clone()),
             },
             ..Default::default()
         };
@@ -485,6 +518,8 @@ temp_file_extension = "md"
         assert_eq!(settings.json_backend.file_path, Some(json_path));
         #[cfg(feature = "sqlite")]
         assert_eq!(settings.sqlite_backend.file_path, Some(sqlite_path));
+        #[cfg(feature = "vjournal")]
+        assert_eq!(settings.vjournal_backend.directory, Some(vjournal_dir));
     }
 
     #[test]
