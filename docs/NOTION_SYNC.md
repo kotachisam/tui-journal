@@ -31,7 +31,16 @@ background jobs.
    Already-exported shell vars take precedence, so you can override
    ad-hoc with `NOTION_TOKEN=... tjournal notion pull`.
 
-5. **Enable the sync mode you want** in `~/.config/tui-journal/config.toml`:
+5. **Enable the sync mode you want** in `config.toml`. The location comes
+   from `directories::BaseDirs::config_dir()` (see
+   `settings_file_path` in `src/settings/mod.rs`), so it is
+   platform-dependent:
+
+   | Platform | Path |
+   | --- | --- |
+   | macOS | `~/Library/Application Support/tui-journal/config.toml` |
+   | Linux | `~/.config/tui-journal/config.toml` |
+   | Windows | `%APPDATA%\tui-journal\config.toml` |
 
    ```toml
    [notion]
@@ -166,6 +175,16 @@ one cycle but is noisy. Mitigation is a future TODO (e.g. comparing
 content hashes instead of timestamps, or ignoring changes where
 `last_edited_by` is a bot).
 
+### Obsidian export rides on the Notion sync
+
+When `[obsidian] enable_on_notion_sync = true`, the vault export is fired
+by `fire_obsidian_after_notion` (`src/app/runner.rs`) *after* a successful
+Notion sync. Setting `sync_mode = "local_only"` therefore stops the
+automatic Obsidian export too, silently — nothing warns you.
+
+The export itself does not depend on Notion. Run it directly with
+`tjournal obsidian sync` (or `tjournal obsidian status` to check state).
+
 ### Empty titles
 
 Notion renders blank title fields as "New page" in the UI; our local
@@ -269,23 +288,37 @@ Should return `0`.
 
 For debugging or extending:
 
+The sync implementation lives in the sibling crate `tui-journal-publisher`
+(`tj-publisher = { path = "../tj-publisher" }` in `Cargo.toml`), **not** in
+this repo. `src/notion/mod.rs` here is a thin adapter that re-exports the
+crate's outcome types and wraps its three entry points.
+
+In this repo:
+
 - `src/settings/notion.rs` — `NotionSettings`, `SyncMode`,
   `PropertyMappings`, env-var readers.
-- `src/notion/client.rs` — thin wrapper over notionrs exposing the 6
-  operations we actually need: retrieve_database, query_data_source,
-  get_page_markdown, create_page, update_page_properties,
-  replace_page_markdown, archive_page.
-- `src/notion/mapper.rs` — bidirectional conversion between
-  `PageResponse` and `Entry`/`EntryDraft`. `page_to_draft` for read,
-  `entry_to_properties` for write.
-- `src/notion/bootstrap.rs` — one-shot import logic.
-- `src/notion/pull.rs` — incremental pull with `decide_update`
-  deciding skip/apply/local-wins.
-- `src/notion/push.rs` — push with `decide_push` deciding
-  create/update/archive/skip/conflict. Rate-limited to ~3 req/sec.
-- Schema: migrations `20260419000000_app_sync_fields.sql` (adds
-  sync metadata columns), `20260420000000_entry_updated_at.sql` (adds
-  `updated_at` and `source_last_edited_at` for conflict detection).
+- `src/notion/mod.rs` — adapter exposing `bootstrap_from_notion`,
+  `pull_from_notion`, `push_to_notion` over `tj_publisher::notion`.
+- Schema: migrations in `backend/src/sqlite/migrations/` —
+  `20260419000000_app_sync_fields.sql` (adds sync metadata columns),
+  `20260420000000_entry_updated_at.sql` (adds `updated_at` and
+  `source_last_edited_at` for conflict detection).
+
+In `../tj-publisher/src/notion/`:
+
+- `client.rs` — thin wrapper over notionrs exposing the seven
+  operations we actually need: `resolve_data_source_id`,
+  `fetch_all_pages`, `page_as_markdown`, `create_page`,
+  `update_page_properties`, `replace_page_markdown`, `archive_page`.
+- `mapper.rs` — bidirectional conversion between `PageResponse` and
+  `Entry`/`EntryDraft`. `page_to_draft` for read, `entry_to_properties`
+  for write. Also holds `sanitize_markdown`.
+- `bootstrap.rs` — one-shot import logic.
+- `pull.rs` — incremental pull with `decide_update` deciding
+  skip/apply/local-wins.
+- `push.rs` — push with `decide_push` deciding
+  create/update/archive/skip/conflict. Rate-limited by
+  `RATE_LIMIT_DELAY` (340ms, ≈3 req/sec).
 
 ## TODOs
 
