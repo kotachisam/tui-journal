@@ -52,6 +52,15 @@ impl UIComponents<'_> {
                 self.set_current_entry(Some(entry_id), app);
                 true
             }
+            EntryPopupInputReturn::AddEntryContinue(entry_id) => {
+                self.set_current_entry(Some(entry_id), app);
+                let count = match self.popup_stack.last() {
+                    Some(Popup::Entry(popup)) => popup.created_count(),
+                    _ => 0,
+                };
+                self.show_toast(format!("Entry added ({count})"));
+                false
+            }
             EntryPopupInputReturn::UpdateCurrentEntry => {
                 self.set_current_entry(app.current_entry_id, app);
                 true

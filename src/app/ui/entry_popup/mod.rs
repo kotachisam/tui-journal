@@ -29,7 +29,7 @@ mod fuzzy_suggestions;
 mod tags;
 mod tags_autocomplete;
 
-const FOOTER_TEXT: &str = "Enter or <Ctrl-m>: confirm | Esc or <Ctrl-c>: Cancel | Tab: Change focused control | <Ctrl-Space> or <Ctrl-t>: Open tags";
+const FOOTER_TEXT: &str = "Enter or <Ctrl-m>: confirm | <Ctrl-d>: confirm & next day | Esc or <Ctrl-c>: Cancel | Tab: Change focused control | <Ctrl-Space> or <Ctrl-t>: Open tags";
 const FOOTER_MARGIN: u16 = 15;
 
 pub struct EntryPopup<'a> {
@@ -51,6 +51,7 @@ pub struct EntryPopup<'a> {
     /// instead of creating an empty one. Populated by `from_template`.
     template_content: Option<String>,
     date_format: DateFormat,
+    created_count: usize,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -67,6 +68,7 @@ pub enum EntryPopupInputReturn {
     KeepPopup,
     Cancel,
     AddEntry(u32),
+    AddEntryContinue(u32),
     UpdateCurrentEntry,
 }
 
@@ -99,6 +101,7 @@ impl<'a> EntryPopup<'a> {
             category_suggestions: None,
             template_content: fields.template_content,
             date_format: settings.date_format.clone(),
+            created_count: 0,
         }
     }
 
@@ -283,7 +286,12 @@ impl<'a> EntryPopup<'a> {
         frame.render_widget(&self.category_txt, chunks[3]);
         frame.render_widget(&self.tags_txt, chunks[4]);
 
-        let footer = Paragraph::new(FOOTER_TEXT)
+        let footer_text = match self.created_count {
+            0 => FOOTER_TEXT.to_owned(),
+            count => format!("{count} created | {FOOTER_TEXT}"),
+        };
+
+        let footer = Paragraph::new(footer_text)
             .alignment(Alignment::Center)
             .wrap(Wrap { trim: false })
             .block(
@@ -475,7 +483,10 @@ impl<'a> EntryPopup<'a> {
         let result: anyhow::Result<EntryPopupInputReturn> = match input.key_code {
             KeyCode::Esc => Ok(EntryPopupInputReturn::Cancel),
             KeyCode::Char('c') if has_ctrl => Ok(EntryPopupInputReturn::Cancel),
-            KeyCode::Enter => self.handle_confirm(app).await,
+            KeyCode::Enter => self.handle_confirm(app, false).await,
+            KeyCode::Char('d') if has_ctrl && !self.is_edit_entry => {
+                self.handle_confirm(app, true).await
+            }
             KeyCode::Up if (has_ctrl || has_alt) && matches!(self.active_txt, ActiveText::Date) => {
                 self.step_date(1);
                 Ok(EntryPopupInputReturn::KeepPopup)
@@ -670,6 +681,7 @@ impl<'a> EntryPopup<'a> {
     async fn handle_confirm<D: DataProvider>(
         &mut self,
         app: &mut App<D>,
+        keep_open: bool,
     ) -> anyhow::Result<EntryPopupInputReturn> {
         // Validation
         self.validate_all();
@@ -712,15 +724,43 @@ impl<'a> EntryPopup<'a> {
                 .await?;
             Ok(EntryPopupInputReturn::UpdateCurrentEntry)
         } else {
-            let entry_id = match self.template_content.take() {
+            let content = if keep_open {
+                self.template_content.clone()
+            } else {
+                self.template_content.take()
+            };
+            let entry_id = match content {
                 Some(content) if !content.is_empty() => {
                     app.add_entry_with_content(title, date, tags, priority, category, content)
                         .await?
                 }
                 _ => app.add_entry(title, date, tags, priority, category).await?,
             };
-            Ok(EntryPopupInputReturn::AddEntry(entry_id))
+            if keep_open {
+                self.reset_for_next();
+                Ok(EntryPopupInputReturn::AddEntryContinue(entry_id))
+            } else {
+                Ok(EntryPopupInputReturn::AddEntry(entry_id))
+            }
         }
+    }
+
+    /// Clears the fields that are unique to a single entry and advances the
+    /// date, leaving tags, priority and category in place so a run of
+    /// back-filled days keeps its classification.
+    fn reset_for_next(&mut self) {
+        self.created_count += 1;
+        self.title_txt = TextArea::default();
+        self.step_date(1);
+        self.active_txt = ActiveText::Title;
+        self.title_err_msg.clear();
+        self.date_err_msg.clear();
+        self.priority_err_msg.clear();
+        self.category_err_msg.clear();
+    }
+
+    pub fn created_count(&self) -> usize {
+        self.created_count
     }
 }
 
@@ -737,7 +777,84 @@ fn text_to_tags(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{tags_to_text, text_to_tags};
+    use super::{ActiveText, EntryPopup, tags_to_text, text_to_tags};
+    use crate::settings::Settings;
+    use tui_textarea::TextArea;
+
+    fn popup_on(date: &str) -> EntryPopup<'static> {
+        let settings = Settings::default();
+        let mut popup = EntryPopup::new_entry(&settings, "journal");
+        popup.date_txt = TextArea::new(vec![date.to_owned()]);
+        popup
+    }
+
+    #[test]
+    fn reset_for_next_advances_the_date_by_one_day() {
+        let mut popup = popup_on("14-03-2026");
+        popup.reset_for_next();
+        assert_eq!(popup.date_txt.lines()[0], "15-03-2026");
+    }
+
+    #[test]
+    fn reset_for_next_advances_across_a_month_boundary() {
+        let mut popup = popup_on("31-08-2026");
+        popup.reset_for_next();
+        assert_eq!(popup.date_txt.lines()[0], "01-09-2026");
+    }
+
+    #[test]
+    fn reset_for_next_advances_across_a_year_boundary() {
+        let mut popup = popup_on("31-12-2026");
+        popup.reset_for_next();
+        assert_eq!(popup.date_txt.lines()[0], "01-01-2027");
+    }
+
+    #[test]
+    fn reset_for_next_clears_the_title_and_refocuses_it() {
+        let mut popup = popup_on("14-03-2026");
+        popup.title_txt = TextArea::new(vec!["a title".to_owned()]);
+        popup.active_txt = ActiveText::Category;
+
+        popup.reset_for_next();
+
+        assert_eq!(popup.title_txt.lines()[0], "");
+        assert_eq!(popup.active_txt, ActiveText::Title);
+    }
+
+    #[test]
+    fn reset_for_next_keeps_tags_priority_and_category() {
+        let mut popup = popup_on("14-03-2026");
+        popup.tags_txt = TextArea::new(vec!["alpha, beta".to_owned()]);
+        popup.priority_txt = TextArea::new(vec!["2".to_owned()]);
+        popup.category_txt = TextArea::new(vec!["work".to_owned()]);
+
+        popup.reset_for_next();
+
+        assert_eq!(popup.tags_txt.lines()[0], "alpha, beta");
+        assert_eq!(popup.priority_txt.lines()[0], "2");
+        assert_eq!(popup.category_txt.lines()[0], "work");
+    }
+
+    #[test]
+    fn reset_for_next_counts_each_created_entry() {
+        let mut popup = popup_on("14-03-2026");
+        assert_eq!(popup.created_count(), 0);
+        popup.reset_for_next();
+        popup.reset_for_next();
+        assert_eq!(popup.created_count(), 2);
+    }
+
+    #[test]
+    fn reset_for_next_clears_stale_error_messages() {
+        let mut popup = popup_on("not a date");
+        popup.validate_all();
+        assert!(!popup.date_err_msg.is_empty());
+
+        popup.date_txt = TextArea::new(vec!["14-03-2026".to_owned()]);
+        popup.reset_for_next();
+
+        assert!(popup.date_err_msg.is_empty());
+    }
 
     #[test]
     fn text_to_tags_strips_trailing_comma_space() {
