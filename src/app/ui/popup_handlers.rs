@@ -48,8 +48,11 @@ impl UIComponents<'_> {
         let close_popup = match result {
             EntryPopupInputReturn::Cancel => true,
             EntryPopupInputReturn::KeepPopup => false,
-            EntryPopupInputReturn::AddEntry(entry_id) => {
-                self.set_current_entry(Some(entry_id), app);
+            EntryPopupInputReturn::AddEntry { focus_id, count } => {
+                self.set_current_entry(Some(focus_id), app);
+                if count > 1 {
+                    self.show_toast(format!("{count} entries created"));
+                }
                 true
             }
             EntryPopupInputReturn::AddEntryContinue(entry_id) => {

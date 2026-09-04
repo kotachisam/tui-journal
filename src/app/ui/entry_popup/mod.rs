@@ -1,5 +1,4 @@
-use anyhow::Ok;
-use chrono::{Datelike, Local, TimeZone, Utc};
+use chrono::{Datelike, Local, NaiveDate, TimeZone, Utc};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     Frame,
@@ -67,7 +66,7 @@ enum ActiveText {
 pub enum EntryPopupInputReturn {
     KeepPopup,
     Cancel,
-    AddEntry(u32),
+    AddEntry { focus_id: u32, count: usize },
     AddEntryContinue(u32),
     UpdateCurrentEntry,
 }
@@ -252,7 +251,11 @@ impl<'a> EntryPopup<'a> {
             self.active_txt == ActiveText::Date,
             &self.date_err_msg,
             "Date",
-            Some("Date | <Ctrl-P/N> or <Opt-Up/Down>: adjust day"),
+            Some(if self.is_edit_entry {
+                "Date | <Ctrl-P/N> or <Opt-Up/Down>: adjust day"
+            } else {
+                "Date | <Ctrl-P/N>: adjust day | comma or start..end for several"
+            }),
             &field_styles,
         );
         render_field(
@@ -348,10 +351,12 @@ impl<'a> EntryPopup<'a> {
     }
 
     fn validate_date(&mut self) {
-        if let Err(err) = self.date_format.parse(self.date_txt.lines()[0].as_str()) {
-            self.date_err_msg = err.to_string();
-        } else {
-            self.date_err_msg.clear();
+        match parse_date_batch(&self.date_format, self.date_txt.lines()[0].as_str()) {
+            Err(err) => self.date_err_msg = err,
+            Ok(dates) if self.is_edit_entry && dates.len() > 1 => {
+                self.date_err_msg = String::from("An entry can only have one date");
+            }
+            Ok(_) => self.date_err_msg.clear(),
         }
     }
 
@@ -690,14 +695,8 @@ impl<'a> EntryPopup<'a> {
         }
 
         let title = self.title_txt.lines()[0].to_owned();
-        let date = self
-            .date_format
-            .parse(self.date_txt.lines()[0].as_str())
-            .expect("Date must be valid here");
-
-        let date = Utc
-            .with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
-            .unwrap();
+        let dates = parse_date_batch(&self.date_format, self.date_txt.lines()[0].as_str())
+            .expect("Dates must be valid here");
 
         let tags = text_to_tags(
             self.tags_txt
@@ -720,48 +719,161 @@ impl<'a> EntryPopup<'a> {
             .unwrap_or_else(|| backend::DEFAULT_CATEGORY.to_owned());
 
         if self.is_edit_entry {
+            let date = to_utc_midnight(dates[0]);
             app.update_current_entry_attributes(title, date, tags, priority, category)
                 .await?;
-            Ok(EntryPopupInputReturn::UpdateCurrentEntry)
+            return Ok(EntryPopupInputReturn::UpdateCurrentEntry);
+        }
+
+        let content = if keep_open {
+            self.template_content.clone()
         } else {
-            let content = if keep_open {
-                self.template_content.clone()
-            } else {
-                self.template_content.take()
-            };
-            let entry_id = match content {
+            self.template_content.take()
+        };
+
+        let mut first_id = None;
+        for day in &dates {
+            let date = to_utc_midnight(*day);
+            let entry_id = match content.as_ref() {
                 Some(content) if !content.is_empty() => {
-                    app.add_entry_with_content(title, date, tags, priority, category, content)
-                        .await?
+                    app.add_entry_with_content(
+                        title.clone(),
+                        date,
+                        tags.clone(),
+                        priority,
+                        category.clone(),
+                        content.clone(),
+                    )
+                    .await?
                 }
-                _ => app.add_entry(title, date, tags, priority, category).await?,
+                _ => {
+                    app.add_entry(
+                        title.clone(),
+                        date,
+                        tags.clone(),
+                        priority,
+                        category.clone(),
+                    )
+                    .await?
+                }
             };
-            if keep_open {
-                self.reset_for_next();
-                Ok(EntryPopupInputReturn::AddEntryContinue(entry_id))
-            } else {
-                Ok(EntryPopupInputReturn::AddEntry(entry_id))
-            }
+            first_id.get_or_insert(entry_id);
+        }
+
+        let focus_id = first_id.expect("A batch always has at least one date");
+
+        if keep_open {
+            self.advance_past(*dates.last().expect("A batch is never empty"), dates.len());
+            Ok(EntryPopupInputReturn::AddEntryContinue(focus_id))
+        } else {
+            Ok(EntryPopupInputReturn::AddEntry {
+                focus_id,
+                count: dates.len(),
+            })
         }
     }
 
-    /// Clears the fields that are unique to a single entry and advances the
-    /// date, leaving tags, priority and category in place so a run of
-    /// back-filled days keeps its classification.
-    fn reset_for_next(&mut self) {
-        self.created_count += 1;
+    /// Readies the popup for the next entry after a create-and-continue: the
+    /// date moves to the day after the last one created and keeps focus, so a
+    /// run is `Ctrl-d` for the next day and `Ctrl-n`/`Ctrl-p` to skip. Tags,
+    /// priority and category stay put so the run keeps its classification.
+    fn advance_past(&mut self, last_created: NaiveDate, created: usize) {
+        self.created_count += created;
         self.title_txt = TextArea::default();
-        self.step_date(1);
-        self.active_txt = ActiveText::Title;
+
+        if let Some(next) = last_created.succ_opt() {
+            self.date_txt = TextArea::new(vec![self.date_format.display(&to_utc_midnight(next))]);
+            self.date_txt.move_cursor(CursorMove::End);
+        }
+
+        self.active_txt = ActiveText::Date;
         self.title_err_msg.clear();
         self.date_err_msg.clear();
         self.priority_err_msg.clear();
         self.category_err_msg.clear();
+        self.validate_date();
     }
 
     pub fn created_count(&self) -> usize {
         self.created_count
     }
+}
+
+/// Upper bound on one batch, so a fat-fingered range can't spawn thousands of
+/// entries in a single confirm.
+const MAX_BATCH_DATES: usize = 366;
+
+const RANGE_SEPARATOR: &str = "..";
+
+/// Parses the date field into the set of days to create. Accepts a single
+/// date, a comma-separated list, an inclusive `start..end` range, or any
+/// mixture. The result is sorted and de-duplicated.
+fn parse_date_batch(format: &DateFormat, text: &str) -> Result<Vec<NaiveDate>, String> {
+    let tokens: Vec<&str> = text
+        .split(',')
+        .map(str::trim)
+        .filter(|token| !token.is_empty())
+        .collect();
+
+    if tokens.is_empty() {
+        return Err(String::from("Date cannot be empty"));
+    }
+
+    let mut dates = Vec::new();
+    for token in tokens {
+        match split_range(format, token) {
+            Some((start, end)) => {
+                if end < start {
+                    return Err(format!("'{token}': range ends before it starts"));
+                }
+                let span = (end - start).num_days() as usize + 1;
+                if span > MAX_BATCH_DATES {
+                    return Err(format!(
+                        "'{token}': {span} days exceeds the {MAX_BATCH_DATES} day limit"
+                    ));
+                }
+                let mut day = start;
+                while day <= end {
+                    dates.push(day);
+                    let Some(next) = day.succ_opt() else { break };
+                    day = next;
+                }
+            }
+            None => dates.push(parse_one(format, token)?),
+        }
+    }
+
+    dates.sort_unstable();
+    dates.dedup();
+
+    if dates.len() > MAX_BATCH_DATES {
+        return Err(format!(
+            "{} dates exceeds the {MAX_BATCH_DATES} entry limit",
+            dates.len()
+        ));
+    }
+
+    Ok(dates)
+}
+
+/// Splits `start..end` only when both halves are valid dates, so a date format
+/// that itself contains dots still parses as a single date.
+fn split_range(format: &DateFormat, token: &str) -> Option<(NaiveDate, NaiveDate)> {
+    let (start, end) = token.split_once(RANGE_SEPARATOR)?;
+    let start = format.parse(start.trim()).ok()?;
+    let end = format.parse(end.trim()).ok()?;
+    Some((start, end))
+}
+
+fn parse_one(format: &DateFormat, token: &str) -> Result<NaiveDate, String> {
+    format
+        .parse(token)
+        .map_err(|err| format!("'{token}': {err}"))
+}
+
+fn to_utc_midnight(date: NaiveDate) -> chrono::DateTime<Utc> {
+    Utc.with_ymd_and_hms(date.year(), date.month(), date.day(), 0, 0, 0)
+        .unwrap()
 }
 
 fn tags_to_text(tags: &[String]) -> String {
@@ -777,58 +889,204 @@ fn text_to_tags(text: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ActiveText, EntryPopup, tags_to_text, text_to_tags};
-    use crate::settings::Settings;
+    use super::{
+        ActiveText, EntryPopup, MAX_BATCH_DATES, parse_date_batch, tags_to_text, text_to_tags,
+    };
+    use crate::settings::{DateFormat, Settings};
+    use chrono::NaiveDate;
     use tui_textarea::TextArea;
 
     fn popup_on(date: &str) -> EntryPopup<'static> {
         let settings = Settings::default();
         let mut popup = EntryPopup::new_entry(&settings, "journal");
         popup.date_txt = TextArea::new(vec![date.to_owned()]);
+        popup.validate_date();
         popup
     }
 
+    fn day(text: &str) -> NaiveDate {
+        DateFormat::default().parse(text).unwrap()
+    }
+
+    fn batch(text: &str) -> Vec<NaiveDate> {
+        parse_date_batch(&DateFormat::default(), text).unwrap()
+    }
+
     #[test]
-    fn reset_for_next_advances_the_date_by_one_day() {
+    fn a_single_date_parses_to_one_day() {
+        assert_eq!(batch("14-03-2026"), vec![day("14-03-2026")]);
+    }
+
+    #[test]
+    fn a_range_expands_inclusively() {
+        assert_eq!(
+            batch("01-09-2026..04-09-2026"),
+            vec![
+                day("01-09-2026"),
+                day("02-09-2026"),
+                day("03-09-2026"),
+                day("04-09-2026"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_range_of_one_day_yields_that_day() {
+        assert_eq!(batch("01-09-2026..01-09-2026"), vec![day("01-09-2026")]);
+    }
+
+    #[test]
+    fn a_range_spans_a_month_boundary() {
+        assert_eq!(
+            batch("30-08-2026..02-09-2026"),
+            vec![
+                day("30-08-2026"),
+                day("31-08-2026"),
+                day("01-09-2026"),
+                day("02-09-2026"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_comma_separated_list_parses_each_date() {
+        assert_eq!(
+            batch("04-09-2026, 01-09-2026"),
+            vec![day("01-09-2026"), day("04-09-2026")]
+        );
+    }
+
+    #[test]
+    fn ranges_and_singles_can_be_mixed() {
+        assert_eq!(
+            batch("01-09-2026..02-09-2026, 07-09-2026"),
+            vec![day("01-09-2026"), day("02-09-2026"), day("07-09-2026"),]
+        );
+    }
+
+    #[test]
+    fn overlapping_dates_are_de_duplicated() {
+        assert_eq!(
+            batch("01-09-2026..03-09-2026, 02-09-2026"),
+            vec![day("01-09-2026"), day("02-09-2026"), day("03-09-2026"),]
+        );
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_ignored() {
+        assert_eq!(
+            batch("  01-09-2026 .. 02-09-2026 , 07-09-2026  "),
+            vec![day("01-09-2026"), day("02-09-2026"), day("07-09-2026"),]
+        );
+    }
+
+    #[test]
+    fn a_trailing_comma_is_ignored() {
+        assert_eq!(batch("01-09-2026,"), vec![day("01-09-2026")]);
+    }
+
+    #[test]
+    fn an_empty_field_is_rejected() {
+        assert!(parse_date_batch(&DateFormat::default(), "   ").is_err());
+    }
+
+    #[test]
+    fn an_unparsable_date_names_the_offending_token() {
+        let err = parse_date_batch(&DateFormat::default(), "01-09-2026, nonsense").unwrap_err();
+        assert!(err.contains("nonsense"), "{err}");
+    }
+
+    #[test]
+    fn a_backwards_range_is_rejected() {
+        let err = parse_date_batch(&DateFormat::default(), "04-09-2026..01-09-2026").unwrap_err();
+        assert!(err.contains("ends before it starts"), "{err}");
+    }
+
+    #[test]
+    fn a_range_beyond_the_limit_is_rejected() {
+        let err = parse_date_batch(&DateFormat::default(), "01-01-2020..01-01-2026").unwrap_err();
+        assert!(err.contains(&MAX_BATCH_DATES.to_string()), "{err}");
+    }
+
+    #[test]
+    fn a_dotted_date_format_still_parses_as_a_single_date() {
+        let format = DateFormat::new("DD.MM.YYYY");
+        assert_eq!(
+            parse_date_batch(&format, "01.09.2026").unwrap(),
+            vec![format.parse("01.09.2026").unwrap()]
+        );
+    }
+
+    #[test]
+    fn a_dotted_date_format_still_supports_ranges() {
+        let format = DateFormat::new("DD.MM.YYYY");
+        assert_eq!(
+            parse_date_batch(&format, "01.09.2026..03.09.2026")
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn a_batch_field_validates_clean_on_a_new_entry() {
+        let popup = popup_on("01-09-2026..03-09-2026");
+        assert!(popup.date_err_msg.is_empty());
+    }
+
+    #[test]
+    fn a_batch_field_is_rejected_when_editing() {
+        let mut popup = popup_on("01-09-2026..03-09-2026");
+        popup.is_edit_entry = true;
+        popup.validate_date();
+        assert_eq!(popup.date_err_msg, "An entry can only have one date");
+    }
+
+    #[test]
+    fn advance_past_moves_to_the_day_after_the_last_created() {
         let mut popup = popup_on("14-03-2026");
-        popup.reset_for_next();
+        popup.advance_past(day("14-03-2026"), 1);
         assert_eq!(popup.date_txt.lines()[0], "15-03-2026");
     }
 
     #[test]
-    fn reset_for_next_advances_across_a_month_boundary() {
-        let mut popup = popup_on("31-08-2026");
-        popup.reset_for_next();
-        assert_eq!(popup.date_txt.lines()[0], "01-09-2026");
+    fn advance_past_moves_past_the_end_of_a_batch() {
+        let mut popup = popup_on("01-09-2026..03-09-2026");
+        popup.advance_past(day("03-09-2026"), 3);
+        assert_eq!(popup.date_txt.lines()[0], "04-09-2026");
     }
 
     #[test]
-    fn reset_for_next_advances_across_a_year_boundary() {
+    fn advance_past_crosses_a_year_boundary() {
         let mut popup = popup_on("31-12-2026");
-        popup.reset_for_next();
+        popup.advance_past(day("31-12-2026"), 1);
         assert_eq!(popup.date_txt.lines()[0], "01-01-2027");
     }
 
     #[test]
-    fn reset_for_next_clears_the_title_and_refocuses_it() {
+    fn advance_past_leaves_focus_on_the_date_field() {
         let mut popup = popup_on("14-03-2026");
-        popup.title_txt = TextArea::new(vec!["a title".to_owned()]);
         popup.active_txt = ActiveText::Category;
-
-        popup.reset_for_next();
-
-        assert_eq!(popup.title_txt.lines()[0], "");
-        assert_eq!(popup.active_txt, ActiveText::Title);
+        popup.advance_past(day("14-03-2026"), 1);
+        assert_eq!(popup.active_txt, ActiveText::Date);
     }
 
     #[test]
-    fn reset_for_next_keeps_tags_priority_and_category() {
+    fn advance_past_clears_the_title() {
+        let mut popup = popup_on("14-03-2026");
+        popup.title_txt = TextArea::new(vec!["a title".to_owned()]);
+        popup.advance_past(day("14-03-2026"), 1);
+        assert_eq!(popup.title_txt.lines()[0], "");
+    }
+
+    #[test]
+    fn advance_past_keeps_tags_priority_and_category() {
         let mut popup = popup_on("14-03-2026");
         popup.tags_txt = TextArea::new(vec!["alpha, beta".to_owned()]);
         popup.priority_txt = TextArea::new(vec!["2".to_owned()]);
         popup.category_txt = TextArea::new(vec!["work".to_owned()]);
 
-        popup.reset_for_next();
+        popup.advance_past(day("14-03-2026"), 1);
 
         assert_eq!(popup.tags_txt.lines()[0], "alpha, beta");
         assert_eq!(popup.priority_txt.lines()[0], "2");
@@ -836,22 +1094,20 @@ mod tests {
     }
 
     #[test]
-    fn reset_for_next_counts_each_created_entry() {
-        let mut popup = popup_on("14-03-2026");
+    fn advance_past_counts_every_entry_in_the_batch() {
+        let mut popup = popup_on("01-09-2026..03-09-2026");
         assert_eq!(popup.created_count(), 0);
-        popup.reset_for_next();
-        popup.reset_for_next();
-        assert_eq!(popup.created_count(), 2);
+        popup.advance_past(day("03-09-2026"), 3);
+        popup.advance_past(day("04-09-2026"), 1);
+        assert_eq!(popup.created_count(), 4);
     }
 
     #[test]
-    fn reset_for_next_clears_stale_error_messages() {
+    fn advance_past_clears_a_stale_error_message() {
         let mut popup = popup_on("not a date");
-        popup.validate_all();
         assert!(!popup.date_err_msg.is_empty());
 
-        popup.date_txt = TextArea::new(vec!["14-03-2026".to_owned()]);
-        popup.reset_for_next();
+        popup.advance_past(day("14-03-2026"), 1);
 
         assert!(popup.date_err_msg.is_empty());
     }
