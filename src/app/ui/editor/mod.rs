@@ -8,6 +8,7 @@ fn fresh_placeholder_seed() -> u64 {
 
 mod clipboard;
 mod content;
+pub(crate) mod emoji;
 mod highlight;
 mod input;
 pub(crate) mod markdown_link;
@@ -16,6 +17,7 @@ mod mode;
 pub(crate) mod notion_strip;
 mod placeholder;
 mod render;
+pub(crate) mod width;
 
 pub use mode::EditorMode;
 
@@ -45,6 +47,7 @@ pub struct Editor<'a> {
     show_preview: bool,
     last_wrap_width: Option<u16>,
     mention: Option<mention::MentionState>,
+    emoji: Option<emoji::EmojiState>,
     pub mention_hitboxes: Vec<MentionHitbox>,
     pub pending_mention_follow: Option<MentionFollow>,
     pub pending_mention_peek: Option<u32>,
@@ -72,6 +75,7 @@ impl<'a> Editor<'a> {
             preview_scroll: 0,
             last_wrap_width: None,
             mention: None,
+            emoji: None,
             mention_hitboxes: Vec::new(),
             pending_mention_follow: None,
             pending_mention_peek: None,

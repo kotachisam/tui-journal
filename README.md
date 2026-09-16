@@ -33,11 +33,12 @@ This is a personal fork of [AmmarAbouZor/tui-journal](https://github.com/AmmarAb
 ### What's added in this fork
 
 - **`@id:N` mention system** — type-ahead picker with body-content fuzzy search, anchored mentions (`@id:182("anchor")`) that scroll the target to a specific line, click/`F`-key to follow, `K`-key peek popup, `Ctrl+O` backstack. Code-fence-aware, drift-resistant when titles change.
+- **`:shortcode:` emoji picker** — type `:` at a word boundary followed by two or more characters for a fuzzy-matched overlay over GitHub shortcodes; `Tab`/`Enter` or a closing `:` inserts the glyph, `Esc` dismisses. Skips clock times and URLs; ZWJ sequences are excluded so every insertable glyph is exactly two columns wide.
 - **Notion bidirectional sync** — `bootstrap` / `pull` / `push` CLI subcommands plus in-app push trigger, configurable per-property mappings, exit-time push prompt for unsynced entries. Sync logic lives in [`tui-journal-publisher`](https://github.com/kotachisam/tui-journal-publisher), a sidecar crate.
 - **Templates for new entries** — `Shift+N` picker over `.md` files in the config dir, optional YAML frontmatter for title/tags/priority, bootstrap creates starter templates if missing.
 - **Activity log + revision history** — CRUD events recorded; `tjournal log` CLI subcommand exports them; per-entry revision popup with restore action.
 - **Markdown export, polished** — single-entry `.md` export with YAML frontmatter (matches the bulk `tjournal export`), native save dialog (`Ctrl+O`), inline cursor-aware path completion in the export popup, reveal-in-Finder/Explorer on confirmation.
-- **Editor enhancements** — vim-style normal/visual modes with operator-pending family (`dd`, `dw`, `db`, `cw`, `cc`, `dj`, `dk`, etc — see in-app help via `?`), soft-wrap with exact cursor mapping in Insert mode, per-entry preview scroll memory, search highlight in preview, second-`Esc` returns focus to entries list.
+- **Editor enhancements** — vim-style normal/visual modes with operator-pending family (`dd`, `dw`, `db`, `cw`, `cc`, `dj`, `dk`, etc — see in-app help via `?`), soft-wrap with column-correct cursor mapping in Insert mode (wide glyphs — emoji, CJK — count as two columns, not one), per-entry preview scroll memory, search highlight in preview, second-`Esc` returns focus to entries list.
 - **Reliability** — `TerminalGuard` with signal handlers for clean exits on SIGHUP/SIGTERM/SIGINT, mouse-event drain on shutdown to prevent terminal residue.
 
 For ongoing roadmap and parked ideas, see commit history. Bug reports / PRs against the fork: file them against this repository, not upstream.
@@ -343,4 +344,3 @@ In the age of powerful AI agents, we need to specify clear rules for contributio
 ## License
 
 [MIT](https://choosealicense.com/licenses/mit/)
-

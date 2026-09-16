@@ -22,6 +22,7 @@ use crate::app::ui::Styles;
 
 use super::mention::RenderedMention;
 use super::placeholder::pick_placeholder;
+use super::width::{char_cols, char_idx_at_col, prefix_cols, str_cols, to_cells};
 use super::{Editor, EditorMode, MentionHitbox, highlight::patch_preview_highlights};
 
 impl Editor<'_> {
@@ -128,20 +129,28 @@ impl Editor<'_> {
         let hitboxes = patch_raw_editor_mentions(frame.buffer_mut(), inner, &app.entries);
         self.mention_hitboxes.extend(hitboxes);
 
-        if let Some(mention) = self.mention.as_ref()
-            && inner.width > 0
-            && inner.height > 0
-        {
+        if (self.mention.is_some() || self.emoji.is_some()) && inner.width > 0 && inner.height > 0 {
             let (cursor_row, cursor_col) = self.text_area.cursor();
+            let cursor_cols = self
+                .text_area
+                .lines()
+                .get(cursor_row)
+                .map(|line| prefix_cols(line, cursor_col))
+                .unwrap_or(cursor_col);
             let anchor_row = (cursor_row as u16).min(inner.height.saturating_sub(1));
-            let anchor_col = (cursor_col as u16).min(inner.width.saturating_sub(1));
+            let anchor_col = (cursor_cols as u16).min(inner.width.saturating_sub(1));
             let anchor = Rect {
                 x: inner.x + anchor_col,
                 y: inner.y + anchor_row,
                 width: 1,
                 height: 1,
             };
-            super::mention::render_overlay(frame, anchor, mention);
+            if let Some(mention) = self.mention.as_ref() {
+                super::mention::render_overlay(frame, anchor, mention);
+            }
+            if let Some(emoji) = self.emoji.as_ref() {
+                super::emoji::render_overlay(frame, anchor, emoji);
+            }
         }
 
         if self.has_no_content() {
@@ -319,7 +328,7 @@ impl Editor<'_> {
                 frame.set_cursor_position((inner.x + vcol, inner.y + scrolled_row));
             }
 
-            if let Some(mention) = self.mention.as_ref()
+            if (self.mention.is_some() || self.emoji.is_some())
                 && vrow >= self.preview_scroll
                 && scrolled_row < inner.height
             {
@@ -329,7 +338,12 @@ impl Editor<'_> {
                     width: 1,
                     height: 1,
                 };
-                super::mention::render_overlay(frame, anchor, mention);
+                if let Some(mention) = self.mention.as_ref() {
+                    super::mention::render_overlay(frame, anchor, mention);
+                }
+                if let Some(emoji) = self.emoji.as_ref() {
+                    super::emoji::render_overlay(frame, anchor, emoji);
+                }
             }
         }
 
@@ -469,15 +483,17 @@ pub(super) fn word_wrap_lines(lines: &[&str], width: u16) -> Vec<WrapRow> {
         let mut row_start: usize = 0;
         let mut last_space: Option<usize> = None;
         let mut i: usize = 0;
+        let mut cols_on_row: usize = 0;
 
         while i < chars.len() {
-            let chars_on_row = i - row_start;
             let c = chars[i];
+            let cw = char_cols(c);
 
-            if chars_on_row >= width_us && c != ' ' {
+            if cols_on_row + cw > width_us && c != ' ' {
                 let (push_end, next_start) = match last_space {
                     Some(sp) if sp >= row_start => (sp, sp + 1),
-                    _ => (i, i),
+                    _ if i > row_start => (i, i),
+                    _ => (i + 1, i + 1),
                 };
                 let content: String = chars[row_start..push_end].iter().collect();
                 rows.push(WrapRow {
@@ -487,21 +503,26 @@ pub(super) fn word_wrap_lines(lines: &[&str], width: u16) -> Vec<WrapRow> {
                 });
                 row_start = next_start;
                 last_space = None;
+                i = i.max(next_start);
+                cols_on_row = chars[next_start..i].iter().copied().map(char_cols).sum();
                 continue;
             }
 
             if c == ' ' {
                 last_space = Some(i);
             }
+            cols_on_row += cw;
             i += 1;
         }
 
-        let content: String = chars[row_start..].iter().collect();
-        rows.push(WrapRow {
-            source_line: line_idx,
-            source_start: row_start,
-            content,
-        });
+        if row_start < chars.len() || rows.last().is_none_or(|r| r.source_line != line_idx) {
+            let content: String = chars[row_start..].iter().collect();
+            rows.push(WrapRow {
+                source_line: line_idx,
+                source_start: row_start,
+                content,
+            });
+        }
     }
 
     rows
@@ -531,12 +552,11 @@ pub(super) fn wrapped_cursor_position(
     }
     let idx = best?;
     let row = &rows[idx];
-    let visual_col = cursor_col - row.source_start;
-    let row_chars = row.content.chars().count();
-    let clamped = visual_col.min(row_chars);
+    let char_offset = (cursor_col - row.source_start).min(row.content.chars().count());
+    let visual_col = prefix_cols(&row.content, char_offset);
     Some((
         u16::try_from(idx).unwrap_or(u16::MAX),
-        u16::try_from(clamped).unwrap_or(u16::MAX),
+        u16::try_from(visual_col).unwrap_or(u16::MAX),
     ))
 }
 
@@ -546,9 +566,8 @@ pub(super) fn visual_to_source(rows: &[WrapRow], target_vrow: u16, vcol: u16) ->
     }
     let target_idx = (target_vrow as usize).min(rows.len() - 1);
     let row = &rows[target_idx];
-    let row_chars = row.content.chars().count();
-    let clamped = (vcol as usize).min(row_chars);
-    (row.source_line, row.source_start + clamped)
+    let char_offset = char_idx_at_col(&row.content, vcol as usize);
+    (row.source_line, row.source_start + char_offset)
 }
 
 fn current_streak<D: DataProvider>(app: &App<D>) -> Option<u32> {
@@ -565,8 +584,8 @@ fn estimate_visual_rows(content: &str, width: u16) -> u16 {
     let mut total: u32 = 0;
     let width_u32 = width as u32;
     for line in content.lines() {
-        let chars = line.chars().count() as u32;
-        total += chars.div_ceil(width_u32).max(1);
+        let cols = str_cols(line) as u32;
+        total += cols.div_ceil(width_u32).max(1);
     }
     if content.ends_with('\n') {
         total = total.saturating_add(1);
@@ -634,7 +653,7 @@ pub(super) fn patch_mention_styles(
     let mut cursor_col: u16 = 0;
 
     for mention in mentions {
-        let label_chars: Vec<char> = mention.label.chars().collect();
+        let label_chars: Vec<char> = to_cells(&mention.label);
         let Some((row, col_start)) =
             find_label_after(buf, area, &label_chars, cursor_row, cursor_col)
         else {
@@ -681,7 +700,7 @@ fn patch_markdown_link_styles(
     let mut cursor_col: u16 = 0;
 
     for link in links {
-        let text_chars: Vec<char> = link.text.chars().collect();
+        let text_chars: Vec<char> = to_cells(&link.text);
         let Some((row, col_start)) =
             find_label_after(buf, area, &text_chars, cursor_row, cursor_col)
         else {
@@ -813,8 +832,10 @@ fn build_wrap_styled_line<'a>(
         if row_idx >= preview_scroll {
             let visual_row = row_idx - preview_scroll;
             if visual_row < inner.height {
-                let col_start = inner.x + local_start as u16;
-                let col_end = inner.x + (local_end as u16).min(inner.width);
+                let start_cols = prefix_cols(&row.content, local_start) as u16;
+                let end_cols = (prefix_cols(&row.content, local_end) as u16).min(inner.width);
+                let col_start = inner.x + start_cols;
+                let col_end = inner.x + end_cols;
                 hitboxes.push(MentionHitbox {
                     row: inner.y + visual_row,
                     col_start,
@@ -964,6 +985,51 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn cursor_round_trip_with_wide_chars() {
+        let lines = vec!["shipped 🎉 today and 中文 too", "🚀🚀 back to back"];
+        let rows = word_wrap_lines(&lines, 10);
+        for (src_row, line) in lines.iter().enumerate() {
+            for src_col in 0..=line.chars().count() {
+                let (vrow, vcol) =
+                    wrapped_cursor_position(&rows, src_row, src_col).expect("position");
+                let (back_row, back_col) = visual_to_source(&rows, vrow, vcol);
+                assert_eq!(
+                    (back_row, back_col),
+                    (src_row, src_col),
+                    "round trip failed for ({src_row}, {src_col})"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn wide_chars_wrap_by_columns_not_char_count() {
+        let rows = word_wrap_lines(&["中中中中中中"], 6);
+        assert_eq!(contents(&rows), vec!["中中中", "中中中"]);
+    }
+
+    #[test]
+    fn emoji_row_never_exceeds_width_in_columns() {
+        let width = 9;
+        let rows = word_wrap_lines(&["🎉a🎉b🎉c🎉d🎉e🎉f"], width);
+        for row in &rows {
+            assert!(
+                super::str_cols(&row.content) <= width as usize,
+                "row {:?} is {} cols",
+                row.content,
+                super::str_cols(&row.content)
+            );
+        }
+    }
+
+    #[test]
+    fn oversized_char_still_makes_progress() {
+        let rows = word_wrap_lines(&["🎉🎉🎉"], 1);
+        assert_eq!(rows.len(), 3);
+        assert_eq!(contents(&rows), vec!["🎉", "🎉", "🎉"]);
     }
 
     #[test]

@@ -61,6 +61,14 @@ impl Editor<'_> {
                 return Ok(HandleInputReturnType::Handled);
             }
 
+            if self.handle_emoji_navigation(input) {
+                return Ok(HandleInputReturnType::Handled);
+            }
+
+            if self.handle_emoji_commit(input) {
+                return Ok(HandleInputReturnType::Handled);
+            }
+
             if self.try_visual_navigation(input) {
                 return Ok(HandleInputReturnType::Handled);
             }
@@ -71,8 +79,17 @@ impl Editor<'_> {
 
             self.dismiss_mention_on_break_char(input);
 
-            let is_at_typed = matches!(input.key_code, KeyCode::Char('@'))
-                && input.modifiers == KeyModifiers::NONE;
+            let unmodified_char = match input.key_code {
+                KeyCode::Char(c) if input.modifiers == KeyModifiers::NONE => Some(c),
+                _ => None,
+            };
+            let is_at_typed = unmodified_char == Some('@');
+            let is_colon_typed = unmodified_char == Some(':');
+
+            if is_colon_typed && self.try_close_emoji_on_colon() {
+                return Ok(HandleInputReturnType::Handled);
+            }
+            self.dismiss_emoji_on_break_char(unmodified_char);
 
             let key_event = KeyEvent::from(input);
             if self.text_area.input(key_event) {
@@ -84,6 +101,12 @@ impl Editor<'_> {
                 self.maybe_open_mention(app);
             } else if self.mention.is_some() {
                 self.update_mention(app);
+            }
+
+            if is_colon_typed {
+                self.maybe_open_emoji();
+            } else if self.emoji.is_some() {
+                self.update_emoji();
             }
 
             return Ok(HandleInputReturnType::Handled);
@@ -408,6 +431,145 @@ impl Editor<'_> {
         };
         self.commit_mention(candidate.id);
         true
+    }
+
+    fn handle_emoji_navigation(&mut self, input: &Input) -> bool {
+        let Some(emoji) = self.emoji.as_mut() else {
+            return false;
+        };
+        if !input.modifiers.is_empty() {
+            return false;
+        }
+        match input.key_code {
+            KeyCode::Esc => {
+                self.emoji = None;
+                true
+            }
+            KeyCode::Up => {
+                emoji.move_up();
+                true
+            }
+            KeyCode::Down => {
+                emoji.move_down();
+                true
+            }
+            _ => false,
+        }
+    }
+
+    fn handle_emoji_commit(&mut self, input: &Input) -> bool {
+        if self.emoji.is_none() {
+            return false;
+        }
+        if !matches!(input.key_code, KeyCode::Tab | KeyCode::Enter) {
+            return false;
+        }
+        if !input.modifiers.is_empty() {
+            return false;
+        }
+        let Some(emoji) = self.emoji.as_ref() else {
+            return false;
+        };
+        let Some(candidate) = emoji.selected().cloned() else {
+            self.emoji = None;
+            return false;
+        };
+        self.commit_emoji(candidate.emoji);
+        true
+    }
+
+    /// A closing `:` commits an exact shortcode match and is swallowed; otherwise it
+    /// just dismisses the overlay and is typed through as an ordinary character.
+    fn try_close_emoji_on_colon(&mut self) -> bool {
+        let Some(emoji) = self.emoji.as_ref() else {
+            return false;
+        };
+        let Some(candidate) = super::emoji::exact_match(emoji.query.trim()) else {
+            self.emoji = None;
+            return false;
+        };
+        self.commit_emoji(candidate.emoji);
+        true
+    }
+
+    fn dismiss_emoji_on_break_char(&mut self, typed: Option<char>) {
+        if self.emoji.is_none() {
+            return;
+        }
+        if let Some(c) = typed
+            && !super::emoji::is_shortcode_char(c)
+        {
+            self.emoji = None;
+        }
+    }
+
+    fn maybe_open_emoji(&mut self) {
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        if cursor_col == 0 {
+            return;
+        }
+        let colon_col = cursor_col - 1;
+        let Some(line) = self.text_area.lines().get(cursor_line) else {
+            return;
+        };
+        if !super::emoji::should_open_emoji(line, colon_col) {
+            return;
+        }
+        self.emoji = Some(super::emoji::EmojiState::new(cursor_line, colon_col));
+    }
+
+    fn update_emoji(&mut self) {
+        let Some(emoji) = self.emoji.as_ref() else {
+            return;
+        };
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        if cursor_line != emoji.anchor_line || cursor_col <= emoji.anchor_col {
+            self.emoji = None;
+            return;
+        }
+        let Some(line) = self.text_area.lines().get(cursor_line) else {
+            self.emoji = None;
+            return;
+        };
+        let query: String = line
+            .chars()
+            .skip(emoji.anchor_col + 1)
+            .take(cursor_col - emoji.anchor_col - 1)
+            .collect();
+        if !query.chars().all(super::emoji::is_shortcode_char) {
+            self.emoji = None;
+            return;
+        }
+        let candidates = if query.chars().count() < super::emoji::MIN_QUERY_CHARS {
+            Vec::new()
+        } else {
+            super::emoji::filter_candidates(&query)
+        };
+        if let Some(emoji) = self.emoji.as_mut() {
+            emoji.query = query;
+            emoji.candidates = candidates;
+            if emoji.selected_idx >= emoji.candidates.len() {
+                emoji.selected_idx = 0;
+            }
+        }
+    }
+
+    fn commit_emoji(&mut self, glyph: &str) {
+        let Some(emoji) = self.emoji.take() else {
+            return;
+        };
+        let (_, cursor_col) = self.text_area.cursor();
+        let chars_to_remove = cursor_col.saturating_sub(emoji.anchor_col);
+
+        self.text_area.move_cursor(tui_textarea::CursorMove::Jump(
+            emoji.anchor_line as u16,
+            emoji.anchor_col as u16,
+        ));
+        for _ in 0..chars_to_remove {
+            self.text_area.delete_next_char();
+        }
+        self.text_area.insert_str(glyph);
+        self.is_dirty = true;
     }
 
     fn try_capture_mention_peek(&mut self, input: &Input) -> bool {
@@ -838,5 +1000,111 @@ mod tests {
         assert_eq!(lines_of(&e), vec![" bbb ccc"]);
         e.text_area.undo();
         assert_eq!(lines_of(&e), vec!["aaa bbb ccc"]);
+    }
+
+    /// Mirrors the insert-mode path in `handle_input_prioritized` without needing an `App`.
+    fn type_chars(e: &mut Editor<'_>, text: &str) {
+        for c in text.chars() {
+            let input = key(c);
+            if c == ':' && e.try_close_emoji_on_colon() {
+                continue;
+            }
+            e.dismiss_emoji_on_break_char(Some(c));
+            e.text_area.input(KeyEvent::from(&input));
+            if c == ':' {
+                e.maybe_open_emoji();
+            } else if e.emoji.is_some() {
+                e.update_emoji();
+            }
+        }
+    }
+
+    fn editor_for_typing() -> Editor<'static> {
+        let mut e = editor_with(&[""]);
+        e.set_editor_mode(EditorMode::Insert);
+        e
+    }
+
+    #[test]
+    fn closing_colon_commits_an_exact_shortcode() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "shipped :tada:");
+        assert_eq!(lines_of(&e), vec!["shipped 🎉"]);
+        assert!(e.emoji.is_none());
+    }
+
+    #[test]
+    fn tab_commits_the_selected_candidate() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "go :rocket");
+        assert!(e.emoji.is_some());
+        assert!(e.handle_emoji_commit(&Input::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(lines_of(&e), vec!["go 🚀"]);
+    }
+
+    #[test]
+    fn esc_dismisses_without_substituting() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "go :rocket");
+        assert!(e.handle_emoji_navigation(&esc()));
+        assert!(e.emoji.is_none());
+        assert_eq!(lines_of(&e), vec!["go :rocket"]);
+    }
+
+    #[test]
+    fn colon_mid_word_never_opens_the_overlay() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "note:tada");
+        assert!(e.emoji.is_none());
+        assert_eq!(lines_of(&e), vec!["note:tada"]);
+    }
+
+    #[test]
+    fn clock_time_is_left_alone() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "standup at 09:30 today");
+        assert!(e.emoji.is_none());
+        assert_eq!(lines_of(&e), vec!["standup at 09:30 today"]);
+    }
+
+    #[test]
+    fn unknown_shortcode_types_through_untouched() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "see :notanemoji:");
+        assert!(e.emoji.is_none());
+        assert_eq!(lines_of(&e), vec!["see :notanemoji:"]);
+    }
+
+    #[test]
+    fn space_dismisses_the_overlay() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":tada and more");
+        assert!(e.emoji.is_none());
+        assert_eq!(lines_of(&e), vec![":tada and more"]);
+    }
+
+    #[test]
+    fn overlay_stays_closed_below_the_minimum_query_length() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":t");
+        let state = e.emoji.as_ref().expect("state is tracked");
+        assert!(state.candidates.is_empty());
+        type_chars(&mut e, "a");
+        assert!(!e.emoji.as_ref().unwrap().candidates.is_empty());
+    }
+
+    #[test]
+    fn committed_emoji_leaves_the_cursor_after_the_glyph() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":tada:");
+        type_chars(&mut e, " done");
+        assert_eq!(lines_of(&e), vec!["🎉 done"]);
+    }
+
+    #[test]
+    fn two_emoji_on_one_line_both_substitute() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":tada: and :rocket:");
+        assert_eq!(lines_of(&e), vec!["🎉 and 🚀"]);
     }
 }
