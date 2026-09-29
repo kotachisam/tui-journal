@@ -85,6 +85,8 @@ impl Editor<'_> {
             };
             let is_at_typed = unmodified_char == Some('@');
             let is_colon_typed = unmodified_char == Some(':');
+            let is_backspace =
+                input.key_code == KeyCode::Backspace && input.modifiers == KeyModifiers::NONE;
 
             if is_colon_typed && self.try_close_emoji_on_colon() {
                 return Ok(HandleInputReturnType::Handled);
@@ -107,6 +109,8 @@ impl Editor<'_> {
                 self.maybe_open_emoji();
             } else if self.emoji.is_some() {
                 self.update_emoji();
+            } else if is_backspace {
+                self.maybe_reopen_emoji();
             }
 
             return Ok(HandleInputReturnType::Handled);
@@ -442,8 +446,13 @@ impl Editor<'_> {
         }
         match input.key_code {
             KeyCode::Esc => {
+                self.dismissed_emoji_anchor = Some((emoji.anchor_line, emoji.anchor_col));
                 self.emoji = None;
                 true
+            }
+            KeyCode::Left | KeyCode::Right => {
+                self.emoji = None;
+                false
             }
             KeyCode::Up => {
                 emoji.move_up();
@@ -515,7 +524,23 @@ impl Editor<'_> {
         if !super::emoji::should_open_emoji(line, colon_col) {
             return;
         }
+        self.dismissed_emoji_anchor = None;
         self.emoji = Some(super::emoji::EmojiState::new(cursor_line, colon_col));
+    }
+
+    fn maybe_reopen_emoji(&mut self) {
+        let (cursor_line, cursor_col) = self.text_area.cursor();
+        let Some(line) = self.text_area.lines().get(cursor_line) else {
+            return;
+        };
+        let Some(colon_col) = super::emoji::reopen_anchor(line, cursor_col) else {
+            return;
+        };
+        if self.dismissed_emoji_anchor == Some((cursor_line, colon_col)) {
+            return;
+        }
+        self.emoji = Some(super::emoji::EmojiState::new(cursor_line, colon_col));
+        self.update_emoji();
     }
 
     fn update_emoji(&mut self) {
@@ -1019,6 +1044,24 @@ mod tests {
         }
     }
 
+    fn backspace(e: &mut Editor<'_>) {
+        let input = Input::new(KeyCode::Backspace, KeyModifiers::NONE);
+        e.text_area.input(KeyEvent::from(&input));
+        if e.emoji.is_some() {
+            e.update_emoji();
+        } else {
+            e.maybe_reopen_emoji();
+        }
+    }
+
+    fn arrow(code: KeyCode) -> Input {
+        Input::new(code, KeyModifiers::NONE)
+    }
+
+    fn emoji_query<'e>(e: &'e Editor<'_>) -> Option<&'e str> {
+        e.emoji.as_ref().map(|s| s.query.as_str())
+    }
+
     fn editor_for_typing() -> Editor<'static> {
         let mut e = editor_with(&[""]);
         e.set_editor_mode(EditorMode::Insert);
@@ -1106,5 +1149,89 @@ mod tests {
         let mut e = editor_for_typing();
         type_chars(&mut e, ":tada: and :rocket:");
         assert_eq!(lines_of(&e), vec!["🎉 and 🚀"]);
+    }
+
+    #[test]
+    fn typo_fix_by_backspace_keeps_the_session_alive() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":db");
+        backspace(&mut e);
+        type_chars(&mut e, "og");
+        assert!(e.handle_emoji_commit(&Input::new(KeyCode::Tab, KeyModifiers::NONE)));
+        assert_eq!(lines_of(&e), vec!["🐶"]);
+    }
+
+    #[test]
+    fn backspace_after_break_char_reopens() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "last :dgo ");
+        assert!(e.emoji.is_none());
+        backspace(&mut e);
+        assert_eq!(emoji_query(&e), Some("dgo"));
+    }
+
+    #[test]
+    fn backspacing_off_a_closing_colon_reopens() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "see :notanemoji:");
+        assert!(e.emoji.is_none());
+        backspace(&mut e);
+        assert_eq!(emoji_query(&e), Some("notanemoji"));
+    }
+
+    #[test]
+    fn backspace_after_esc_does_not_reopen() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":dgo");
+        assert!(e.handle_emoji_navigation(&esc()));
+        type_chars(&mut e, " ");
+        backspace(&mut e);
+        assert!(e.emoji.is_none());
+    }
+
+    #[test]
+    fn a_new_colon_clears_the_esc_suppression() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":dgo");
+        assert!(e.handle_emoji_navigation(&esc()));
+        type_chars(&mut e, " :ca");
+        assert_eq!(emoji_query(&e), Some("ca"));
+    }
+
+    #[test]
+    fn backspace_mid_token_does_not_reopen() {
+        let mut e = editor_with(&[":dxog"]);
+        e.set_editor_mode(EditorMode::Insert);
+        e.text_area.move_cursor(CursorMove::Jump(0, 3));
+        backspace(&mut e);
+        assert_eq!(lines_of(&e), vec![":dog"]);
+        assert!(e.emoji.is_none());
+    }
+
+    #[test]
+    fn backspace_into_clock_time_stays_closed() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, "at 09:30 ");
+        backspace(&mut e);
+        assert!(e.emoji.is_none());
+    }
+
+    #[test]
+    fn horizontal_arrows_dismiss_and_still_move_the_cursor() {
+        for code in [KeyCode::Left, KeyCode::Right] {
+            let mut e = editor_for_typing();
+            type_chars(&mut e, ":rocket");
+            assert!(!e.handle_emoji_navigation(&arrow(code)));
+            assert!(e.emoji.is_none());
+        }
+    }
+
+    #[test]
+    fn arrow_dismissal_does_not_block_backspace_reopen() {
+        let mut e = editor_for_typing();
+        type_chars(&mut e, ":dgo");
+        assert!(!e.handle_emoji_navigation(&arrow(KeyCode::Right)));
+        backspace(&mut e);
+        assert_eq!(emoji_query(&e), Some("dg"));
     }
 }

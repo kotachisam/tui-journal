@@ -20,6 +20,12 @@ impl CompletionProvider for EmojiProvider {
     fn render_candidate<'a>(&self, candidate: &'a Self::Candidate) -> Line<'a> {
         let mut spans = vec![Span::raw(candidate.emoji), Span::raw("  ")];
         spans.extend(highlight_shortcode(candidate.shortcode, &candidate.match_indices).spans);
+        if let Some(tag) = candidate.tag {
+            spans.push(Span::styled(
+                format!("  {tag}"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
         Line::from(spans)
     }
 
@@ -112,10 +118,25 @@ mod tests {
             emoji: "🎉",
             shortcode: "tada",
             name: "party popper",
+            tag: None,
             match_indices: vec![],
         };
         let line = EmojiProvider.render_candidate(&candidate);
         assert_eq!(line.spans[0].content, "🎉");
+    }
+
+    #[test]
+    fn tag_hit_shows_the_matched_tag_after_the_shortcode() {
+        let candidate = EmojiCandidate {
+            emoji: "😆",
+            shortcode: "laughing",
+            name: "grinning squinting face",
+            tag: Some("haha"),
+            match_indices: vec![],
+        };
+        let line = EmojiProvider.render_candidate(&candidate);
+        let rendered: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(rendered, "😆  :laughing:  haha");
     }
 
     #[test]
@@ -124,6 +145,7 @@ mod tests {
             emoji: "🚀",
             shortcode: "rocket",
             name: "rocket",
+            tag: None,
             match_indices: vec![],
         };
         assert!(EmojiProvider.title(Some(&candidate)).starts_with("rocket"));
